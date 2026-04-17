@@ -1,8 +1,10 @@
 package org.example.campusmarket.entity;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Data;
 
 import java.util.Date;
@@ -26,4 +28,12 @@ public class Product {
     private Integer salesCount;
     private Date createTime;
     private Date updateTime;
+    
+    @TableField(exist = false)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String merchantName;
+    
+    @TableField(exist = false)
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String firstImage;
 }

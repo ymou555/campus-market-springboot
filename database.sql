@@ -36,6 +36,8 @@ CREATE TABLE merchant_info (
     update_time DATETIME DEFAULT GETDATE(),
     FOREIGN KEY (user_id) REFERENCES sys_user(id)
 );
+-- 1. 添加店铺名称
+ALTER TABLE merchant_info ADD shop_name NVARCHAR(100) NULL;
 
 -- 创建商家等级配置表
 CREATE TABLE merchant_level (
@@ -124,12 +126,14 @@ CREATE TABLE order_info (
     total_amount DECIMAL(18,2) NOT NULL,
     actual_amount DECIMAL(18,2) NOT NULL,
     points_deducted INT DEFAULT 0,
-    status NVARCHAR(20) NOT NULL, -- pending, paid, shipped, received, completed, refunded
+    status NVARCHAR(20) NOT NULL, -- pending, paid, shipped, received, completed, refunded, bargaining, cancelled
     create_time DATETIME DEFAULT GETDATE(),
     update_time DATETIME DEFAULT GETDATE(),
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
     FOREIGN KEY (merchant_id) REFERENCES sys_user(id)
 );
+-- 添加买家出价字段
+ALTER TABLE order_info ADD buyer_offer_price DECIMAL(18,2) NULL;
 
 -- 创建订单明细表
 CREATE TABLE order_item (

@@ -18,7 +18,8 @@ public class OrderInfo {
     private Double totalAmount;
     private Double actualAmount;
     private Integer pointsDeducted;
-    private String status; // pending, paid, shipped, received, completed, refunded
+    private String status; // pending, paid, shipped, received, completed, refunded, bargaining, cancelled
+    private Double buyerOfferPrice; // 买家出价金额
     private Date createTime;
     private Date updateTime;
 }

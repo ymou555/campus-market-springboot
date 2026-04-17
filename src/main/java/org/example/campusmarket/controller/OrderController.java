@@ -25,17 +25,18 @@ public class OrderController {
     @PostMapping("/create")
     public Map<String, Object> createOrder(
             @RequestParam Integer userId,
-            @RequestParam Integer pointsDeducted) {
+            @RequestParam Integer pointsDeducted,
+            @RequestParam(required = false) Double buyerOfferPrice) {
         // 获取选中的购物车商品
         List<Cart> selectedItems = cartService.getSelectedCartItems(userId);
         if (selectedItems.isEmpty()) {
             throw new RuntimeException("请选择要购买的商品");
         }
 
-        OrderInfo order = orderService.createOrder(userId, selectedItems, pointsDeducted);
+        OrderInfo order = orderService.createOrder(userId, selectedItems, pointsDeducted, buyerOfferPrice);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("message", "订单创建成功");
+        result.put("message", buyerOfferPrice != null ? "议价订单已创建，等待商家确认" : "订单创建成功");
         result.put("order", order);
         return result;
     }
@@ -79,6 +80,26 @@ public class OrderController {
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "退货申请成功");
+        return result;
+    }
+    
+    // 商家接受议价
+    @PostMapping("/accept-bargaining")
+    public Map<String, Object> acceptBargaining(@RequestParam Integer orderId) {
+        orderService.acceptBargaining(orderId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "已接受议价，等待买家付款");
+        return result;
+    }
+    
+    // 商家拒绝议价
+    @PostMapping("/reject-bargaining")
+    public Map<String, Object> rejectBargaining(@RequestParam Integer orderId) {
+        orderService.rejectBargaining(orderId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "已拒绝议价，订单已取消");
         return result;
     }
 

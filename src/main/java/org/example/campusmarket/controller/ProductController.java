@@ -3,6 +3,7 @@ package org.example.campusmarket.controller;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.Product;
 import org.example.campusmarket.entity.ProductImage;
+import org.example.campusmarket.entity.CategoryTree;
 import org.example.campusmarket.service.ProductService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -70,17 +71,25 @@ public class ProductController {
     // 搜索商品
     @GetMapping("/search")
     public Map<String, Object> searchProducts(
-            @RequestParam int page,
-            @RequestParam int size,
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer categoryId,
             @RequestParam(required = false) String sortBy) {
-        Page<Product> productPage = productService.searchProducts(page, size, keyword, categoryId, sortBy);
+        List<Product> products = productService.searchProducts(keyword, categoryId, sortBy);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "搜索成功");
-        result.put("data", productPage.getRecords());
-        result.put("total", productPage.getTotal());
+        result.put("data", products);
+        return result;
+    }
+    
+    // 获取商品分类树
+    @GetMapping("/categories")
+    public Map<String, Object> getCategoryTree() {
+        List<CategoryTree> categoryTree = productService.getCategoryTree();
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", categoryTree);
         return result;
     }
 
@@ -88,6 +97,10 @@ public class ProductController {
     @GetMapping("/detail")
     public Map<String, Object> getProductDetail(@RequestParam Integer id) {
         Product product = productService.getProductById(id);
+        // 清除不需要的字段
+        product.setMerchantName(null);
+        product.setFirstImage(null);
+        
         List<ProductImage> images = productService.getProductImages(id);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);

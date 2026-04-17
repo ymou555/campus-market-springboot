@@ -6,18 +6,22 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.OrderInfo;
+import org.example.campusmarket.entity.Product;
 import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.mapper.MerchantInfoMapper;
 import org.example.campusmarket.mapper.MerchantLevelMapper;
 import org.example.campusmarket.mapper.OrderInfoMapper;
+import org.example.campusmarket.mapper.ProductMapper;
 import org.example.campusmarket.mapper.ReviewMapper;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class MerchantService {
@@ -31,6 +35,8 @@ public class MerchantService {
     private OrderInfoMapper orderInfoMapper;
     @Autowired
     private ReviewMapper reviewMapper;
+    @Autowired
+    private ProductMapper productMapper;
 
     // 获取商家信息
     public MerchantInfo getMerchantInfo(Integer userId) {
@@ -163,5 +169,67 @@ public class MerchantService {
             adjustMerchantLevel(merchantId, newLevelId);
             System.out.println("商家ID: " + merchantId + " 等级调整为: " + newLevelId);
         }
+    }
+    
+    // 获取商家统计信息
+    public Map<String, Object> getMerchantStats(Integer userId) {
+        Map<String, Object> stats = new HashMap<>();
+        
+        // 获取商家信息
+        MerchantInfo merchantInfo = getMerchantInfo(userId);
+        if (merchantInfo == null) {
+            throw new RuntimeException("商家信息不存在");
+        }
+        
+        // 设置用户ID和店铺名称
+        stats.put("userId", userId);
+        stats.put("shopName", merchantInfo.getShopName());
+        
+        // 计算商家总销量
+        LambdaQueryWrapper<Product> productWrapper = new LambdaQueryWrapper<>();
+        productWrapper.eq(Product::getMerchantId, userId);
+        List<Product> products = productMapper.selectList(productWrapper);
+        
+        int totalSales = 0;
+        for (Product product : products) {
+            totalSales += product.getSalesCount();
+        }
+        stats.put("totalSales", totalSales);
+        
+        // 计算商家平均评分
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getTargetId, userId);
+        reviewWrapper.eq(Review::getTargetType, "merchant");
+        List<Review> reviews = reviewMapper.selectList(reviewWrapper);
+        
+        double avgRating = 0.0;
+        if (!reviews.isEmpty()) {
+            int totalRating = 0;
+            for (Review review : reviews) {
+                totalRating += review.getRating();
+            }
+            avgRating = (double) totalRating / reviews.size();
+            // 保留一位小数
+            avgRating = Math.round(avgRating * 10.0) / 10.0;
+        }
+        stats.put("avgRating", avgRating);
+        stats.put("reviewCount", reviews.size());
+        
+        return stats;
+    }
+    
+    // 根据商品ID获取商家统计信息
+    public Map<String, Object> getMerchantStatsByProduct(Integer productId) {
+        // 根据商品ID查询商品信息
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new RuntimeException("商品不存在");
+        }
+        
+        // 获取商家ID
+        Integer merchantId = product.getMerchantId();
+        
+        // 调用原有的获取商家统计信息方法
+        return getMerchantStats(merchantId);
     }
 }

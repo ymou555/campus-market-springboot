@@ -29,6 +29,12 @@ public class OrderService {
     // 创建订单
     @Transactional
     public OrderInfo createOrder(Integer userId, List<Cart> cartItems, Integer pointsDeducted) {
+        return createOrder(userId, cartItems, pointsDeducted, null);
+    }
+    
+    // 创建订单（支持议价）
+    @Transactional
+    public OrderInfo createOrder(Integer userId, List<Cart> cartItems, Integer pointsDeducted, Double buyerOfferPrice) {
         // 生成订单号
         String orderNo = "ORD" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8);
         
@@ -39,9 +45,23 @@ public class OrderService {
             totalAmount += product.getDiscountPrice() * cart.getQuantity();
         }
 
-        // 计算实际支付金额（积分抵扣）
-        double actualAmount = totalAmount - (pointsDeducted / 100.0);
-        if (actualAmount < 0) actualAmount = 0;
+        // 判断是否为议价订单
+        boolean isBargaining = buyerOfferPrice != null && buyerOfferPrice > 0;
+        
+        // 计算实际支付金额
+        double actualAmount;
+        String orderStatus;
+        
+        if (isBargaining) {
+            // 议价订单：实际金额暂时为总价，等待商家确认
+            actualAmount = totalAmount;
+            orderStatus = "bargaining";
+        } else {
+            // 正常订单：计算积分抵扣
+            actualAmount = totalAmount - (pointsDeducted / 100.0);
+            if (actualAmount < 0) actualAmount = 0;
+            orderStatus = "pending";
+        }
 
         // 创建订单主表
         OrderInfo order = new OrderInfo();
@@ -50,8 +70,9 @@ public class OrderService {
         order.setMerchantId(cartItems.get(0).getProductId()); // 假设购物车中商品来自同一商家
         order.setTotalAmount(totalAmount);
         order.setActualAmount(actualAmount);
-        order.setPointsDeducted(pointsDeducted);
-        order.setStatus("pending");
+        order.setPointsDeducted(isBargaining ? 0 : pointsDeducted);
+        order.setBuyerOfferPrice(buyerOfferPrice);
+        order.setStatus(orderStatus);
         order.setCreateTime(new Date());
         order.setUpdateTime(new Date());
         orderInfoMapper.insert(order);
@@ -66,15 +87,18 @@ public class OrderService {
             item.setPrice(product.getDiscountPrice());
             orderItemMapper.insert(item);
 
-            // 扣减库存
-            LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
-            productWrapper.eq(Product::getId, cart.getProductId());
-            productWrapper.set(Product::getStock, product.getStock() - cart.getQuantity());
-            productWrapper.set(Product::getSalesCount, product.getSalesCount() + cart.getQuantity());
-            if (product.getStock() - cart.getQuantity() <= 0) {
-                productWrapper.set(Product::getStatus, "sold_out");
+            // 议价订单不扣减库存，等待商家确认后再扣减
+            if (!isBargaining) {
+                // 扣减库存
+                LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+                productWrapper.eq(Product::getId, cart.getProductId());
+                productWrapper.set(Product::getStock, product.getStock() - cart.getQuantity());
+                productWrapper.set(Product::getSalesCount, product.getSalesCount() + cart.getQuantity());
+                if (product.getStock() - cart.getQuantity() <= 0) {
+                    productWrapper.set(Product::getStatus, "sold_out");
+                }
+                productMapper.update(null, productWrapper);
             }
-            productMapper.update(null, productWrapper);
         }
 
         // 清空购物车中已购买的商品
@@ -83,7 +107,7 @@ public class OrderService {
         }
 
         // 记录订单状态变更
-        recordOrderStatusChange(order.getId(), null, "pending", "系统");
+        recordOrderStatusChange(order.getId(), null, orderStatus, "系统");
 
         return order;
     }
@@ -157,6 +181,71 @@ public class OrderService {
 
         // 记录订单状态变更
         recordOrderStatusChange(orderId, order.getStatus(), "refunded", "用户");
+    }
+    
+    // 商家接受议价
+    @Transactional
+    public void acceptBargaining(Integer orderId) {
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+        
+        if (!"bargaining".equals(order.getStatus())) {
+            throw new RuntimeException("订单状态不是议价中");
+        }
+        
+        if (order.getBuyerOfferPrice() == null || order.getBuyerOfferPrice() <= 0) {
+            throw new RuntimeException("买家出价无效");
+        }
+        
+        // 更新订单：实际金额改为买家出价，状态改为待付款
+        LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(OrderInfo::getId, orderId);
+        wrapper.set(OrderInfo::getActualAmount, order.getBuyerOfferPrice());
+        wrapper.set(OrderInfo::getStatus, "pending");
+        wrapper.set(OrderInfo::getUpdateTime, new Date());
+        orderInfoMapper.update(null, wrapper);
+        
+        // 扣减库存
+        List<OrderItem> items = getOrderItems(orderId);
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+            productWrapper.eq(Product::getId, item.getProductId());
+            productWrapper.set(Product::getStock, product.getStock() - item.getQuantity());
+            productWrapper.set(Product::getSalesCount, product.getSalesCount() + item.getQuantity());
+            if (product.getStock() - item.getQuantity() <= 0) {
+                productWrapper.set(Product::getStatus, "sold_out");
+            }
+            productMapper.update(null, productWrapper);
+        }
+        
+        // 记录订单状态变更
+        recordOrderStatusChange(orderId, "bargaining", "pending", "商家");
+    }
+    
+    // 商家拒绝议价
+    @Transactional
+    public void rejectBargaining(Integer orderId) {
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+        
+        if (!"bargaining".equals(order.getStatus())) {
+            throw new RuntimeException("订单状态不是议价中");
+        }
+        
+        // 更新订单状态为商家取消
+        LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(OrderInfo::getId, orderId);
+        wrapper.set(OrderInfo::getStatus, "cancelled");
+        wrapper.set(OrderInfo::getUpdateTime, new Date());
+        orderInfoMapper.update(null, wrapper);
+        
+        // 记录订单状态变更
+        recordOrderStatusChange(orderId, "bargaining", "cancelled", "商家");
     }
 
     // 获取订单详情

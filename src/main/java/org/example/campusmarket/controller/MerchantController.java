@@ -108,4 +108,15 @@ public class MerchantController {
         result.put("message", "解除封禁成功");
         return result;
     }
+    
+    // 根据商品ID获取商家统计信息
+    @GetMapping("/stats")
+    public Map<String, Object> getMerchantStatsByProduct(@RequestParam Integer productId) {
+        Map<String, Object> stats = merchantService.getMerchantStatsByProduct(productId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", stats);
+        return result;
+    }
 }

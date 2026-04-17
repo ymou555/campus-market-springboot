@@ -10,6 +10,8 @@ import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
+import org.example.campusmarket.entity.Category;
+import org.example.campusmarket.entity.CategoryTree;
 import org.example.campusmarket.mapper.ProductAuditMapper;
 import org.example.campusmarket.mapper.ProductImageMapper;
 import org.example.campusmarket.mapper.ProductMapper;
@@ -17,6 +19,7 @@ import org.example.campusmarket.mapper.ReviewMapper;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.mapper.MerchantInfoMapper;
 import org.example.campusmarket.mapper.MerchantLevelMapper;
+import org.example.campusmarket.mapper.CategoryMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +45,8 @@ public class ProductService {
     private MerchantInfoMapper merchantInfoMapper;
     @Autowired
     private MerchantLevelMapper merchantLevelMapper;
+    @Autowired
+    private CategoryMapper categoryMapper;
 
     // 发布商品
     @Transactional
@@ -105,8 +110,7 @@ public class ProductService {
     }
 
     // 搜索商品
-    public Page<Product> searchProducts(int page, int size, String keyword, Integer categoryId, String sortBy) {
-        Page<Product> productPage = new Page<>(page, size);
+    public List<Product> searchProducts(String keyword, Integer categoryId, String sortBy) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getStatus, "published");
 
@@ -126,32 +130,60 @@ public class ProductService {
         } else if ("sales".equals(sortBy)) {
             wrapper.orderByDesc(Product::getSalesCount);
         } else if ("rating".equals(sortBy)) {
-            // 按好评率排序（这里使用自定义查询，实际项目中可能需要使用联表查询）
-            // 由于MyBatis Plus的LambdaQueryWrapper不支持直接的联表查询和聚合函数
-            // 这里我们先获取所有符合条件的商品，然后根据好评率排序
-            List<Product> products = productMapper.selectList(wrapper);
             // 按好评率排序
+            List<Product> products = productMapper.selectList(wrapper);
             products.sort((p1, p2) -> {
                 double rating1 = getProductAverageRating(p1.getId());
                 double rating2 = getProductAverageRating(p2.getId());
-                return Double.compare(rating2, rating1); // 降序
+                return Double.compare(rating2, rating1);
             });
-            // 手动分页
-            int start = (page - 1) * size;
-            int end = Math.min(start + size, products.size());
-            if (start < products.size()) {
-                List<Product> pageProducts = products.subList(start, end);
-                productPage.setRecords(pageProducts);
-                productPage.setTotal(products.size());
-                return productPage;
-            } else {
-                productPage.setRecords(List.of());
-                productPage.setTotal(0);
-                return productPage;
-            }
+            // 设置商家名称和首图
+            setMerchantName(products);
+            setFirstImage(products);
+            return products;
+        } else {
+            wrapper.orderByDesc(Product::getCreateTime);
         }
 
-        return productMapper.selectPage(productPage, wrapper);
+        List<Product> products = productMapper.selectList(wrapper);
+        // 设置商家名称和首图
+        setMerchantName(products);
+        setFirstImage(products);
+        return products;
+    }
+    
+    // 设置商品列表的商家名称
+    private void setMerchantName(List<Product> products) {
+        for (Product product : products) {
+            // 从merchant_info表获取店铺名称
+            LambdaQueryWrapper<MerchantInfo> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(MerchantInfo::getUserId, product.getMerchantId());
+            MerchantInfo merchantInfo = merchantInfoMapper.selectOne(wrapper);
+            
+            if (merchantInfo != null && merchantInfo.getShopName() != null) {
+                // 如果有店铺名称，使用店铺名称
+                product.setMerchantName(merchantInfo.getShopName());
+            } else {
+                // 如果没有店铺名称，使用用户真实姓名
+                SysUser merchant = sysUserMapper.selectById(product.getMerchantId());
+                if (merchant != null) {
+                    product.setMerchantName(merchant.getName());
+                }
+            }
+        }
+    }
+    
+    // 设置商品列表的首图
+    private void setFirstImage(List<Product> products) {
+        for (Product product : products) {
+            LambdaQueryWrapper<ProductImage> wrapper = new LambdaQueryWrapper<>();
+            wrapper.eq(ProductImage::getProductId, product.getId());
+            wrapper.orderByAsc(ProductImage::getSortOrder);
+            List<ProductImage> images = productImageMapper.selectList(wrapper);
+            if (images != null && !images.isEmpty()) {
+                product.setFirstImage(images.get(0).getImageUrl());
+            }
+        }
     }
 
     // 获取商品的平均评分
@@ -265,5 +297,29 @@ public class ProductService {
 
         // 删除商品
         productMapper.deleteById(productId);
+    }
+    
+    // 获取商品分类树
+    public List<CategoryTree> getCategoryTree() {
+        // 查询所有分类
+        List<Category> allCategories = categoryMapper.selectList(null);
+        
+        // 构建分类树
+        return buildCategoryTree(allCategories, 0);
+    }
+    
+    // 递归构建分类树
+    private List<CategoryTree> buildCategoryTree(List<Category> categories, Integer parentId) {
+        return categories.stream()
+                .filter(category -> category.getParentId().equals(parentId))
+                .map(category -> {
+                    CategoryTree tree = new CategoryTree(category.getId(), category.getCategoryName());
+                    List<CategoryTree> children = buildCategoryTree(categories, category.getId());
+                    if (!children.isEmpty()) {
+                        tree.setChildren(children);
+                    }
+                    return tree;
+                })
+                .collect(java.util.stream.Collectors.toList());
     }
 }
