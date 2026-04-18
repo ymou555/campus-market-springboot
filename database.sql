@@ -223,6 +223,7 @@ CREATE TABLE banner (
     status NVARCHAR(20) DEFAULT 'active',
     create_time DATETIME DEFAULT GETDATE()
 );
+ALTER TABLE banner ADD banner_name NVARCHAR(50) NOT NULL DEFAULT N'未命名';
 
 -- 创建用户黑名单表
 CREATE TABLE user_blacklist (
