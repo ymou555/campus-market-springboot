@@ -1,12 +1,12 @@
 package org.example.campusmarket.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.service.ReviewService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -27,61 +27,45 @@ public class ReviewController {
 
     // 获取商品评价列表
     @GetMapping("/product/list")
-    public Map<String, Object> getProductReviews(
-            @RequestParam int page,
-            @RequestParam int size,
-            @RequestParam Integer productId) {
-        Page<Review> reviewPage = reviewService.getProductReviews(page, size, productId);
+    public Map<String, Object> getProductReviews(@RequestParam Integer productId) {
+        List<Review> reviews = reviewService.getProductReviews(productId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", reviewPage.getRecords());
-        result.put("total", reviewPage.getTotal());
+        result.put("data", reviews);
         return result;
     }
 
     // 获取商家评价列表
     @GetMapping("/merchant/list")
-    public Map<String, Object> getMerchantReviews(
-            @RequestParam int page,
-            @RequestParam int size,
-            @RequestParam Integer merchantId) {
-        Page<Review> reviewPage = reviewService.getMerchantReviews(page, size, merchantId);
+    public Map<String, Object> getMerchantReviews(@RequestParam Integer merchantId) {
+        List<Review> reviews = reviewService.getMerchantReviews(merchantId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", reviewPage.getRecords());
-        result.put("total", reviewPage.getTotal());
+        result.put("data", reviews);
         return result;
     }
 
     // 获取买家评价列表
     @GetMapping("/buyer/list")
-    public Map<String, Object> getBuyerReviews(
-            @RequestParam int page,
-            @RequestParam int size,
-            @RequestParam Integer buyerId) {
-        Page<Review> reviewPage = reviewService.getBuyerReviews(page, size, buyerId);
+    public Map<String, Object> getBuyerReviews(@RequestParam Integer buyerId) {
+        List<Review> reviews = reviewService.getBuyerReviews(buyerId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", reviewPage.getRecords());
-        result.put("total", reviewPage.getTotal());
+        result.put("data", reviews);
         return result;
     }
 
     // 获取用户的评价列表
     @GetMapping("/user/list")
-    public Map<String, Object> getUserReviews(
-            @RequestParam int page,
-            @RequestParam int size,
-            @RequestParam Integer userId) {
-        Page<Review> reviewPage = reviewService.getUserReviews(page, size, userId);
+    public Map<String, Object> getUserReviews(@RequestParam Integer userId) {
+        List<Review> reviews = reviewService.getUserReviews(userId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", reviewPage.getRecords());
-        result.put("total", reviewPage.getTotal());
+        result.put("data", reviews);
         return result;
     }
 
@@ -91,7 +75,13 @@ public class ReviewController {
         double rating = reviewService.getProductAverageRating(productId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("message", "获取成功");
+        
+        if (rating == 0) {
+            result.put("message", "暂无评分");
+        } else {
+            result.put("message", "获取成功");
+        }
+        
         result.put("rating", rating);
         return result;
     }

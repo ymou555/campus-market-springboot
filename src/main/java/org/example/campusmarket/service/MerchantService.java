@@ -218,6 +218,54 @@ public class MerchantService {
         return stats;
     }
     
+    // 获取商家统计信息（包含等级信息）
+    public Map<String, Object> getMerchantStatsWithLevel(Integer userId) {
+        Map<String, Object> stats = new HashMap<>();
+        
+        // 获取商家信息
+        MerchantInfo merchantInfo = getMerchantInfo(userId);
+        if (merchantInfo == null) {
+            throw new RuntimeException("商家信息不存在");
+        }
+        
+        // 设置用户ID、店铺名称和等级ID
+        stats.put("userId", userId);
+        stats.put("shopName", merchantInfo.getShopName());
+        stats.put("levelId", merchantInfo.getLevelId());
+        
+        // 计算商家总销量
+        LambdaQueryWrapper<Product> productWrapper = new LambdaQueryWrapper<>();
+        productWrapper.eq(Product::getMerchantId, userId);
+        List<Product> products = productMapper.selectList(productWrapper);
+        
+        int totalSales = 0;
+        for (Product product : products) {
+            totalSales += product.getSalesCount();
+        }
+        stats.put("totalSales", totalSales);
+        
+        // 计算商家平均评分
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getTargetId, userId);
+        reviewWrapper.eq(Review::getTargetType, "merchant");
+        List<Review> reviews = reviewMapper.selectList(reviewWrapper);
+        
+        double avgRating = 0.0;
+        if (!reviews.isEmpty()) {
+            int totalRating = 0;
+            for (Review review : reviews) {
+                totalRating += review.getRating();
+            }
+            avgRating = (double) totalRating / reviews.size();
+            // 保留一位小数
+            avgRating = Math.round(avgRating * 10.0) / 10.0;
+        }
+        stats.put("avgRating", avgRating);
+        stats.put("reviewCount", reviews.size());
+        
+        return stats;
+    }
+    
     // 根据商品ID获取商家统计信息
     public Map<String, Object> getMerchantStatsByProduct(Integer productId) {
         // 根据商品ID查询商品信息

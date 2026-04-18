@@ -119,4 +119,15 @@ public class MerchantController {
         result.put("data", stats);
         return result;
     }
+    
+    // 根据商家ID获取商家统计信息
+    @GetMapping("/stats/by-user")
+    public Map<String, Object> getMerchantStatsByUser(@RequestParam Integer userId) {
+        Map<String, Object> stats = merchantService.getMerchantStatsWithLevel(userId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", stats);
+        return result;
+    }
 }

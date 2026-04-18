@@ -113,16 +113,13 @@ public class ProductController {
     // 获取商家商品列表
     @GetMapping("/merchant/list")
     public Map<String, Object> getMerchantProducts(
-            @RequestParam int page,
-            @RequestParam int size,
             @RequestParam Integer merchantId,
             @RequestParam(required = false) String status) {
-        Page<Product> productPage = productService.getMerchantProducts(page, size, merchantId, status);
+        List<Product> products = productService.getMerchantProducts(merchantId, status);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", productPage.getRecords());
-        result.put("total", productPage.getTotal());
+        result.put("data", products);
         return result;
     }
 

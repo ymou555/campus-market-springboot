@@ -216,14 +216,20 @@ public class ProductService {
     }
 
     // 获取商家商品列表
-    public Page<Product> getMerchantProducts(int page, int size, Integer merchantId, String status) {
-        Page<Product> productPage = new Page<>(page, size);
+    public List<Product> getMerchantProducts(Integer merchantId, String status) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getMerchantId, merchantId);
         if (status != null) {
             wrapper.eq(Product::getStatus, status);
         }
-        return productMapper.selectPage(productPage, wrapper);
+        wrapper.orderByDesc(Product::getCreateTime);
+        List<Product> products = productMapper.selectList(wrapper);
+        
+        // 设置商家名称和首图
+        setMerchantName(products);
+        setFirstImage(products);
+        
+        return products;
     }
 
     // 获取商家店铺信息
