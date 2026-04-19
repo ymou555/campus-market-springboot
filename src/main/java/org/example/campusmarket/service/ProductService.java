@@ -110,7 +110,7 @@ public class ProductService {
     }
 
     // 搜索商品
-    public List<Product> searchProducts(String keyword, Integer categoryId, String sortBy) {
+    public List<Product> searchProducts(String keyword, Integer categoryId, String sortBy, Double minPrice, Double maxPrice, String newness) {
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getStatus, "published");
 
@@ -120,6 +120,18 @@ public class ProductService {
 
         if (categoryId != null) {
             wrapper.eq(Product::getCategoryId, categoryId);
+        }
+
+        if (minPrice != null) {
+            wrapper.ge(Product::getDiscountPrice, minPrice);
+        }
+
+        if (maxPrice != null) {
+            wrapper.le(Product::getDiscountPrice, maxPrice);
+        }
+
+        if (newness != null && !newness.isEmpty()) {
+            wrapper.eq(Product::getNewness, newness);
         }
 
         // 排序

@@ -73,8 +73,11 @@ public class ProductController {
     public Map<String, Object> searchProducts(
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) Integer categoryId,
-            @RequestParam(required = false) String sortBy) {
-        List<Product> products = productService.searchProducts(keyword, categoryId, sortBy);
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(required = false) Double minPrice,
+            @RequestParam(required = false) Double maxPrice,
+            @RequestParam(required = false) String newness) {
+        List<Product> products = productService.searchProducts(keyword, categoryId, sortBy, minPrice, maxPrice, newness);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "搜索成功");
