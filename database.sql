@@ -31,7 +31,7 @@ CREATE TABLE merchant_info (
     user_id INT NOT NULL,
     business_license NVARCHAR(255) NOT NULL,
     id_card_photo NVARCHAR(255) NOT NULL,
-    level_id INT DEFAULT 1,
+    level_id INT DEFAULT 5,
     create_time DATETIME DEFAULT GETDATE(),
     update_time DATETIME DEFAULT GETDATE(),
     FOREIGN KEY (user_id) REFERENCES sys_user(id)
@@ -49,11 +49,11 @@ CREATE TABLE merchant_level (
 
 -- 插入商家等级数据
 INSERT INTO merchant_level (level_name, rate, min_amount) VALUES
-('1级', 0.001, 0),
-('2级', 0.002, 10000),
+('1级', 0.001, 500000),
+('2级', 0.002, 100000),
 ('3级', 0.005, 50000),
-('4级', 0.0075, 100000),
-('5级', 0.01, 500000);
+('4级', 0.0075, 10000),
+('5级', 0.01, 0);
 
 -- 创建商品分类表
 CREATE TABLE category (

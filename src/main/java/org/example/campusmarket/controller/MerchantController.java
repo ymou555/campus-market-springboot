@@ -1,6 +1,5 @@
 package org.example.campusmarket.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.service.MerchantService;
@@ -9,6 +8,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -40,15 +40,12 @@ public class MerchantController {
 
     // 获取商家等级列表
     @GetMapping("/level/list")
-    public Map<String, Object> getMerchantLevelList(
-            @RequestParam int page,
-            @RequestParam int size) {
-        Page<MerchantLevel> levelPage = merchantService.getMerchantLevelList(page, size);
+    public Map<String, Object> getMerchantLevelList() {
+        List<MerchantLevel> levelList = merchantService.getMerchantLevelList();
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", levelPage.getRecords());
-        result.put("total", levelPage.getTotal());
+        result.put("data", levelList);
         return result;
     }
 

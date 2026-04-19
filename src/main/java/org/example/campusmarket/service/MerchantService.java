@@ -2,7 +2,6 @@ package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.OrderInfo;
@@ -52,9 +51,8 @@ public class MerchantService {
     }
 
     // 获取商家等级列表
-    public Page<MerchantLevel> getMerchantLevelList(int page, int size) {
-        Page<MerchantLevel> levelPage = new Page<>(page, size);
-        return merchantLevelMapper.selectPage(levelPage, null);
+    public List<MerchantLevel> getMerchantLevelList() {
+        return merchantLevelMapper.selectList(null);
     }
 
     // 获取商家等级详情
@@ -142,29 +140,27 @@ public class MerchantService {
 
     // 根据绩效调整商家等级
     private void adjustMerchantLevelBasedOnPerformance(Integer merchantId, double totalAmount, double avgRating) {
-        // 获取商家当前等级
         MerchantInfo merchantInfo = getMerchantInfo(merchantId);
         if (merchantInfo == null) {
             return;
         }
-        
-        // 获取所有等级配置
+
         List<MerchantLevel> levels = merchantLevelMapper.selectList(null);
-        
-        // 根据交易额确定等级
-        int newLevelId = 1; // 默认1级
+
+        levels.sort((a, b) -> Double.compare(b.getMinAmount(), a.getMinAmount()));
+
+        int newLevelId = 5;
         for (MerchantLevel level : levels) {
             if (totalAmount >= level.getMinAmount()) {
                 newLevelId = level.getId();
+                break;
             }
         }
-        
-        // 如果满意度低于3星，降低一级
-        if (avgRating < 3 && newLevelId > 1) {
-            newLevelId--;
+
+        if (avgRating < 3 && newLevelId < 5) {
+            newLevelId++;
         }
-        
-        // 如果当前等级与新等级不同，更新等级
+
         if (merchantInfo.getLevelId() != newLevelId) {
             adjustMerchantLevel(merchantId, newLevelId);
             System.out.println("商家ID: " + merchantId + " 等级调整为: " + newLevelId);

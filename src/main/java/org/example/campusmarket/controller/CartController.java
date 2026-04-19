@@ -1,5 +1,6 @@
 package org.example.campusmarket.controller;
 
+import org.example.campusmarket.dto.MerchantCartVO;
 import org.example.campusmarket.entity.Cart;
 import org.example.campusmarket.service.CartService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -15,7 +16,6 @@ public class CartController {
     @Autowired
     private CartService cartService;
 
-    // 添加商品到购物车
     @PostMapping("/add")
     public Map<String, Object> addToCart(
             @RequestParam Integer userId,
@@ -28,10 +28,9 @@ public class CartController {
         return result;
     }
 
-    // 获取购物车列表
     @GetMapping("/list")
     public Map<String, Object> getCartList(@RequestParam Integer userId) {
-        List<Cart> cartList = cartService.getCartList(userId);
+        List<MerchantCartVO> cartList = cartService.getCartListGroupedByMerchant(userId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
@@ -75,6 +74,19 @@ public class CartController {
         return result;
     }
 
+    // 批量更新购物车某商家的所有商品选中状态
+    @PutMapping("/batch-update-selected-by-merchant")
+    public Map<String, Object> batchUpdateSelectedStatusByMerchant(
+            @RequestParam Integer userId,
+            @RequestParam Integer merchantId,
+            @RequestParam Boolean isSelected) {
+        cartService.batchUpdateSelectedStatusByMerchant(userId, merchantId, isSelected);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "更新成功");
+        return result;
+    }
+
     // 删除购物车商品
     @DeleteMapping("/delete")
     public Map<String, Object> deleteCartItem(@RequestParam Integer cartId) {
@@ -92,6 +104,16 @@ public class CartController {
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "清空成功");
+        return result;
+    }
+
+    // 删除选中的购物车商品
+    @DeleteMapping("/delete-selected")
+    public Map<String, Object> deleteSelectedCartItems(@RequestParam Integer userId) {
+        cartService.deleteSelectedCartItems(userId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "删除成功");
         return result;
     }
 
