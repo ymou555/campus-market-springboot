@@ -246,3 +246,32 @@ CREATE TABLE merchant_ban_record (
     status NVARCHAR(20) DEFAULT 'active',
     FOREIGN KEY (merchant_id) REFERENCES sys_user(id)
 );
+
+-- 创建订单配送信息表（1对1关系，一个订单对应一条配送记录）
+CREATE TABLE order_delivery (
+    id INT PRIMARY KEY IDENTITY(1,1),
+    order_id INT NOT NULL,                     -- 关联的订单ID
+    delivery_type NVARCHAR(20) NOT NULL,       -- 'face_to_face' 或 'express'
+    
+    -- ========== 快递相关字段（仅当 delivery_type = 'express' 时有效） ==========
+    receiver_name NVARCHAR(50) NULL,           -- 收货人姓名
+    receiver_phone NVARCHAR(20) NULL,          -- 收货人手机号
+    receiver_address NVARCHAR(200) NULL,       -- 详细收货地址
+    tracking_number NVARCHAR(50) NULL,         -- 快递单号（商家发货后填写）
+    
+    -- ========== 面交相关字段（仅当 delivery_type = 'face_to_face' 时有效） ==========
+    meet_time DATETIME NULL,                   -- 约定见面时间
+    meet_location NVARCHAR(200) NULL,          -- 约定见面地点（如“图书馆门口”）
+    meet_status NVARCHAR(20) NULL,             -- 面交协商状态：pending_seller / pending_buyer / confirmed / rejected
+    meet_last_updater NVARCHAR(20) NULL,       -- 最后一次修改人：'buyer' 或 'seller'
+    
+    -- ========== 通用字段 ==========
+    remark NVARCHAR(200) NULL,                 -- 额外备注（如买家留言：“放丰巢柜”）
+    create_time DATETIME DEFAULT GETDATE(),
+    update_time DATETIME DEFAULT GETDATE(),
+    
+    FOREIGN KEY (order_id) REFERENCES order_info(id)
+);
+
+-- 为 order_id 创建唯一索引，确保一个订单只有一条配送记录
+CREATE UNIQUE INDEX idx_order_delivery_order_id ON order_delivery(order_id);

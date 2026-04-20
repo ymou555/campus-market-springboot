@@ -1,6 +1,7 @@
 package org.example.campusmarket.controller;
 
 import org.example.campusmarket.dto.MerchantCartVO;
+import org.example.campusmarket.dto.SelectedCartItemVO;
 import org.example.campusmarket.entity.Cart;
 import org.example.campusmarket.service.CartService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -120,7 +121,7 @@ public class CartController {
     // 获取选中的购物车商品
     @GetMapping("/selected")
     public Map<String, Object> getSelectedCartItems(@RequestParam Integer userId) {
-        List<Cart> selectedItems = cartService.getSelectedCartItems(userId);
+        List<SelectedCartItemVO> selectedItems = cartService.getSelectedCartItemsWithDetails(userId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");

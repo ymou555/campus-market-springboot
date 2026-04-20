@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import org.example.campusmarket.dto.CartItemVO;
 import org.example.campusmarket.dto.MerchantCartVO;
+import org.example.campusmarket.dto.SelectedCartItemVO;
 import org.example.campusmarket.entity.Cart;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.Product;
@@ -212,5 +213,67 @@ public class CartService {
         wrapper.eq(Cart::getUserId, userId);
         wrapper.eq(Cart::getIsSelected, true);
         return cartMapper.selectList(wrapper);
+    }
+
+    public List<SelectedCartItemVO> getSelectedCartItemsWithDetails(Integer userId) {
+        LambdaQueryWrapper<Cart> cartWrapper = new LambdaQueryWrapper<>();
+        cartWrapper.eq(Cart::getUserId, userId);
+        cartWrapper.eq(Cart::getIsSelected, true);
+        List<Cart> cartList = cartMapper.selectList(cartWrapper);
+
+        if (cartList.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Integer> productIds = cartList.stream()
+                .map(Cart::getProductId)
+                .collect(Collectors.toList());
+
+        LambdaQueryWrapper<Product> productWrapper = new LambdaQueryWrapper<>();
+        productWrapper.in(Product::getId, productIds);
+        List<Product> products = productMapper.selectList(productWrapper);
+
+        Map<Integer, Product> productMap = products.stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
+        List<SelectedCartItemVO> result = new ArrayList<>();
+
+        for (Cart cart : cartList) {
+            Product product = productMap.get(cart.getProductId());
+            if (product != null) {
+                SelectedCartItemVO itemVO = new SelectedCartItemVO();
+                itemVO.setCartId(cart.getId());
+                itemVO.setProductId(product.getId());
+                itemVO.setProductName(product.getProductName());
+                itemVO.setPrice(BigDecimal.valueOf(product.getDiscountPrice()));
+                itemVO.setQuantity(cart.getQuantity());
+                itemVO.setMerchantId(product.getMerchantId());
+
+                SysUser merchant = sysUserMapper.selectById(product.getMerchantId());
+                if (merchant != null) {
+                    itemVO.setMerchantName(merchant.getName());
+                }
+
+                LambdaQueryWrapper<MerchantInfo> merchantInfoWrapper = new LambdaQueryWrapper<>();
+                merchantInfoWrapper.eq(MerchantInfo::getUserId, product.getMerchantId());
+                MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantInfoWrapper);
+                if (merchantInfo != null && merchantInfo.getShopName() != null) {
+                    itemVO.setMerchantName(merchantInfo.getShopName());
+                }
+
+                LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                imageWrapper.eq(ProductImage::getProductId, product.getId());
+                imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                imageWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+                ProductImage firstImage = productImageMapper.selectOne(imageWrapper);
+                if (firstImage != null) {
+                    itemVO.setProductImage(firstImage.getImageUrl());
+                }
+
+                result.add(itemVO);
+            }
+        }
+
+        return result;
     }
 }
