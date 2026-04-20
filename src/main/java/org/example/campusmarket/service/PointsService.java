@@ -1,7 +1,6 @@
 package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.PointsRecord;
 import org.example.campusmarket.mapper.PointsRecordMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -9,6 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
 
 @Service
 public class PointsService {
@@ -19,12 +19,16 @@ public class PointsService {
     public int getTotalPoints(Integer userId) {
         LambdaQueryWrapper<PointsRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PointsRecord::getUserId, userId);
-        // 使用QueryWrapper来支持SQL聚合函数
-        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<PointsRecord> queryWrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
-        queryWrapper.eq("user_id", userId);
-        queryWrapper.select("SUM(points) as total_points");
-        Object result = pointsRecordMapper.selectObjs(queryWrapper).stream().findFirst().orElse(0);
-        return result != null ? Integer.parseInt(result.toString()) : 0;
+        List<PointsRecord> records = pointsRecordMapper.selectList(wrapper);
+        return records.stream()
+                .mapToInt(record -> {
+                    int points = record.getPoints();
+                    if ("deduct".equals(record.getType()) || "expire".equals(record.getType())) {
+                        return -Math.abs(points);
+                    }
+                    return points;
+                })
+                .sum();
     }
 
     // 增加积分
@@ -69,15 +73,14 @@ public class PointsService {
     }
 
     // 获取积分流水记录
-    public Page<PointsRecord> getPointsRecords(int page, int size, Integer userId, String type) {
-        Page<PointsRecord> recordPage = new Page<>(page, size);
+    public List<PointsRecord> getPointsRecords(Integer userId, String type) {
         LambdaQueryWrapper<PointsRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PointsRecord::getUserId, userId);
         if (type != null && !type.isEmpty()) {
             wrapper.eq(PointsRecord::getType, type);
         }
         wrapper.orderByDesc(PointsRecord::getCreateTime);
-        return pointsRecordMapper.selectPage(recordPage, wrapper);
+        return pointsRecordMapper.selectList(wrapper);
     }
 
     // 消费获得积分（1元=1积分）

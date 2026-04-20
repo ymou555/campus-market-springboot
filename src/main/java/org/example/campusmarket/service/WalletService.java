@@ -2,7 +2,6 @@ package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.TransactionRecord;
 import org.example.campusmarket.entity.Wallet;
 import org.example.campusmarket.mapper.TransactionRecordMapper;
@@ -12,6 +11,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Date;
+import java.util.List;
 
 @Service
 public class WalletService {
@@ -133,14 +133,13 @@ public class WalletService {
     }
 
     // 获取交易流水列表
-    public Page<TransactionRecord> getTransactionRecords(int page, int size, Integer userId, String type) {
-        Page<TransactionRecord> recordPage = new Page<>(page, size);
+    public List<TransactionRecord> getTransactionRecords(Integer userId, String type) {
         LambdaQueryWrapper<TransactionRecord> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(TransactionRecord::getUserId, userId);
         if (type != null && !type.isEmpty()) {
             wrapper.eq(TransactionRecord::getType, type);
         }
         wrapper.orderByDesc(TransactionRecord::getTransactionTime);
-        return transactionRecordMapper.selectPage(recordPage, wrapper);
+        return transactionRecordMapper.selectList(wrapper);
     }
 }

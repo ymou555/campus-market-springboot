@@ -1,12 +1,12 @@
 package org.example.campusmarket.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.PointsRecord;
 import org.example.campusmarket.service.PointsService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -55,16 +55,13 @@ public class PointsController {
     // 获取积分流水记录
     @GetMapping("/records")
     public Map<String, Object> getPointsRecords(
-            @RequestParam int page,
-            @RequestParam int size,
             @RequestParam Integer userId,
             @RequestParam(required = false) String type) {
-        Page<PointsRecord> recordPage = pointsService.getPointsRecords(page, size, userId, type);
+        List<PointsRecord> records = pointsService.getPointsRecords(userId, type);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", recordPage.getRecords());
-        result.put("total", recordPage.getTotal());
+        result.put("data", records);
         return result;
     }
 

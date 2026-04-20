@@ -1,6 +1,5 @@
 package org.example.campusmarket.controller;
 
-import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.entity.TransactionRecord;
 import org.example.campusmarket.entity.Wallet;
 import org.example.campusmarket.service.WalletService;
@@ -8,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -82,16 +82,13 @@ public class WalletController {
     // 获取交易流水列表
     @GetMapping("/transactions")
     public Map<String, Object> getTransactionRecords(
-            @RequestParam int page,
-            @RequestParam int size,
             @RequestParam Integer userId,
             @RequestParam(required = false) String type) {
-        Page<TransactionRecord> recordPage = walletService.getTransactionRecords(page, size, userId, type);
+        List<TransactionRecord> records = walletService.getTransactionRecords(userId, type);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", recordPage.getRecords());
-        result.put("total", recordPage.getTotal());
+        result.put("data", records);
         return result;
     }
 }
