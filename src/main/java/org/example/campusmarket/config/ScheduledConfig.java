@@ -25,6 +25,22 @@ public class ScheduledConfig {
         System.out.println("订单超时自动取消任务执行完成: " + new Date());
     }
 
+    // 每小时执行一次，将超过24小时的received订单转为completed
+    @Scheduled(cron = "0 0 * * * ?")
+    public void autoCompleteReceivedOrders() {
+        System.out.println("开始执行自动完成收货订单任务: " + new Date());
+        orderService.autoCompleteReceivedOrders();
+        System.out.println("自动完成收货订单任务执行完成: " + new Date());
+    }
+
+    // 每小时执行一次，发货后7天自动确认收货
+    @Scheduled(cron = "0 30 * * * ?")
+    public void autoCompleteShippedOrders() {
+        System.out.println("开始执行发货后7天自动确认收货任务: " + new Date());
+        orderService.autoCompleteShippedOrders();
+        System.out.println("发货后7天自动确认收货任务执行完成: " + new Date());
+    }
+
     // 每天凌晨1点执行一次
     // @Scheduled(cron = "0 0 1 * * ?")
     // public void autoCompleteOrders() {

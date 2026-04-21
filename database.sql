@@ -275,3 +275,25 @@ CREATE TABLE order_delivery (
 
 -- 为 order_id 创建唯一索引，确保一个订单只有一条配送记录
 CREATE UNIQUE INDEX idx_order_delivery_order_id ON order_delivery(order_id);
+
+-- =====================================================
+-- 退货申请表（方案三，轻量独立表）
+-- =====================================================
+CREATE TABLE order_return_request (
+    id INT PRIMARY KEY IDENTITY(1,1),
+    order_id INT NOT NULL,
+    user_id INT NOT NULL,
+    return_reason NVARCHAR(200) NOT NULL,
+    request_time DATETIME DEFAULT GETDATE(),
+    status NVARCHAR(20) NOT NULL DEFAULT 'pending', -- pending / approved / rejected / completed
+    audit_time DATETIME NULL,
+    audit_remark NVARCHAR(200) NULL,
+    refund_amount DECIMAL(18,2) NOT NULL,           -- 退款金额（默认取订单实付金额）
+    FOREIGN KEY (order_id) REFERENCES order_info(id),
+    FOREIGN KEY (user_id) REFERENCES sys_user(id)
+);
+
+-- 为 order_id 创建唯一索引，确保一个订单同一时间只有一条“进行中”的退货申请
+-- （若需要允许多次退货可去掉唯一约束，这里按常规一次退货设计）
+CREATE UNIQUE INDEX idx_return_request_order_id ON order_return_request(order_id) 
+WHERE status IN ('pending', 'approved');  -- 仅当有待审或已通过未完成时唯一

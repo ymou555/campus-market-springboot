@@ -3,6 +3,9 @@ package org.example.campusmarket.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.OrderDetailDeliveryVO;
+import org.example.campusmarket.dto.OrderDetailProductVO;
+import org.example.campusmarket.dto.OrderDetailVO;
 import org.example.campusmarket.dto.OrderListVO;
 import org.example.campusmarket.dto.OrderProductVO;
 import org.example.campusmarket.entity.*;
@@ -36,6 +39,18 @@ public class OrderService {
     private PointsService pointsService;
     @Autowired
     private ProductImageMapper productImageMapper;
+    @Autowired
+    private SysUserMapper sysUserMapper;
+    @Autowired
+    private WalletService walletService;
+    @Autowired
+    private OrderReturnRequestMapper orderReturnRequestMapper;
+    @Autowired
+    private EscrowAccountMapper escrowAccountMapper;
+    @Autowired
+    private MerchantInfoMapper merchantInfoMapper;
+    @Autowired
+    private MerchantLevelMapper merchantLevelMapper;
 
     // 创建订单
     @Transactional
@@ -47,6 +62,81 @@ public class OrderService {
     @Transactional
     public OrderInfo createOrder(Integer userId, List<Cart> cartItems, Integer pointsDeducted, Double buyerOfferPrice) {
         return createOrder(userId, cartItems, pointsDeducted, buyerOfferPrice, null);
+    }
+
+    // 创建订单（立即购买，直接购买商品）
+    @Transactional
+    public OrderInfo createOrderDirect(Integer userId, Integer productId, Integer quantity, Integer pointsDeducted, Double buyerOfferPrice, OrderDelivery delivery) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new RuntimeException("商品不存在");
+        }
+        if (product.getStock() < quantity) {
+            throw new RuntimeException("商品库存不足");
+        }
+
+        String orderNo = "ORD" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8);
+
+        double totalAmount = product.getDiscountPrice() * quantity;
+        Integer merchantId = product.getMerchantId();
+
+        boolean isBargaining = buyerOfferPrice != null && buyerOfferPrice > 0;
+
+        double actualAmount;
+        String orderStatus;
+
+        if (isBargaining) {
+            actualAmount = totalAmount;
+            orderStatus = "bargaining";
+        } else {
+            actualAmount = totalAmount - (pointsDeducted / 100.0);
+            if (actualAmount < 0) actualAmount = 0;
+            orderStatus = "pending";
+        }
+
+        OrderInfo order = new OrderInfo();
+        order.setOrderNo(orderNo);
+        order.setUserId(userId);
+        order.setMerchantId(merchantId);
+        order.setTotalAmount(totalAmount);
+        order.setActualAmount(actualAmount);
+        order.setPointsDeducted(isBargaining ? 0 : pointsDeducted);
+        order.setBuyerOfferPrice(buyerOfferPrice);
+        order.setStatus(orderStatus);
+        order.setCreateTime(new Date());
+        order.setUpdateTime(new Date());
+        orderInfoMapper.insert(order);
+
+        OrderItem item = new OrderItem();
+        item.setOrderId(order.getId());
+        item.setProductId(productId);
+        item.setQuantity(quantity);
+        item.setPrice(product.getDiscountPrice());
+        orderItemMapper.insert(item);
+
+        if (!isBargaining) {
+            LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+            productWrapper.eq(Product::getId, productId);
+            productWrapper.set(Product::getStock, product.getStock() - quantity);
+            if (product.getStock() - quantity <= 0) {
+                productWrapper.set(Product::getStatus, "sold_out");
+            }
+            productMapper.update(null, productWrapper);
+        }
+
+        if (delivery != null) {
+            delivery.setOrderId(order.getId());
+            delivery.setCreateTime(new Date());
+            delivery.setUpdateTime(new Date());
+            if ("face_to_face".equals(delivery.getDeliveryType())) {
+                delivery.setMeetStatus("pending_seller");
+            }
+            orderDeliveryMapper.insert(delivery);
+        }
+
+        recordOrderStatusChange(order.getId(), null, orderStatus, "系统");
+
+        return order;
     }
 
     // 创建订单（支持配送信息）
@@ -146,6 +236,17 @@ public class OrderService {
             pointsService.deductPoints(order.getUserId(), order.getPointsDeducted(), "订单支付抵扣，订单号：" + order.getOrderNo());
         }
 
+        if (order.getActualAmount() != null && order.getActualAmount() > 0) {
+            walletService.pay(order.getUserId(), order.getActualAmount(), "订单支付，订单号：" + order.getOrderNo());
+
+            EscrowAccount escrowAccount = new EscrowAccount();
+            escrowAccount.setOrderId(orderId);
+            escrowAccount.setAmount(order.getActualAmount());
+            escrowAccount.setStatus("holding");
+            escrowAccount.setCreateTime(new Date());
+            escrowAccountMapper.insert(escrowAccount);
+        }
+
         List<OrderItem> items = getOrderItems(orderId);
         for (OrderItem item : items) {
             Product product = productMapper.selectById(item.getProductId());
@@ -207,22 +308,29 @@ public class OrderService {
     }
 
     // 用户确认收货
+    @Transactional
     public void receiveOrder(Integer orderId) {
         OrderInfo order = orderInfoMapper.selectById(orderId);
         if (order == null) {
             throw new RuntimeException("订单不存在");
         }
 
+        if (!"shipped".equals(order.getStatus())) {
+            throw new RuntimeException("订单状态不允许确认收货");
+        }
+
         LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(OrderInfo::getId, orderId);
-        wrapper.set(OrderInfo::getStatus, "completed");
+        wrapper.set(OrderInfo::getStatus, "received");
         wrapper.set(OrderInfo::getUpdateTime, new Date());
         orderInfoMapper.update(null, wrapper);
 
-        recordOrderStatusChange(orderId, "shipped", "completed", "用户");
+        settleEscrowToMerchant(orderId);
+
+        recordOrderStatusChange(orderId, "shipped", "received", "用户");
     }
 
-    // 申请退货
+    // 申请退货（创建退货申请）
     @Transactional
     public void applyRefund(Integer orderId, String reason) {
         OrderInfo order = orderInfoMapper.selectById(orderId);
@@ -230,36 +338,39 @@ public class OrderService {
             throw new RuntimeException("订单不存在");
         }
 
-        if (!"paid".equals(order.getStatus()) && !"shipped".equals(order.getStatus())) {
-            throw new RuntimeException("当前订单状态不允许申请退货");
+        if (!"received".equals(order.getStatus())) {
+            throw new RuntimeException("只有已收货的订单才能申请退货");
         }
 
-        List<OrderItem> items = getOrderItems(orderId);
-        for (OrderItem item : items) {
-            Product product = productMapper.selectById(item.getProductId());
-            if (product != null) {
-                LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
-                productWrapper.eq(Product::getId, item.getProductId());
-                productWrapper.set(Product::getStock, product.getStock() + item.getQuantity());
-                productWrapper.set(Product::getSalesCount, Math.max(0, product.getSalesCount() - item.getQuantity()));
-                if ("sold_out".equals(product.getStatus()) && product.getStock() + item.getQuantity() > 0) {
-                    productWrapper.set(Product::getStatus, "on_sale");
-                }
-                productMapper.update(null, productWrapper);
+        LambdaQueryWrapper<OrderStatusLog> logWrapper = new LambdaQueryWrapper<>();
+        logWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        logWrapper.eq(OrderStatusLog::getNewStatus, "received");
+        logWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        OrderStatusLog receiveLog = orderStatusLogMapper.selectOne(logWrapper);
+
+        if (receiveLog != null) {
+            long hoursSinceReceive = (System.currentTimeMillis() - receiveLog.getOperateTime().getTime()) / (1000 * 60 * 60);
+            if (hoursSinceReceive > 24) {
+                throw new RuntimeException("超过24小时无法申请退货");
             }
         }
 
-        if (order.getPointsDeducted() != null && order.getPointsDeducted() > 0) {
-            pointsService.addPoints(order.getUserId(), order.getPointsDeducted(), "退货退还积分，订单号：" + order.getOrderNo());
+        LambdaQueryWrapper<OrderReturnRequest> existingWrapper = new LambdaQueryWrapper<>();
+        existingWrapper.eq(OrderReturnRequest::getOrderId, orderId);
+        existingWrapper.in(OrderReturnRequest::getStatus, "pending", "approved");
+        OrderReturnRequest existingRequest = orderReturnRequestMapper.selectOne(existingWrapper);
+        if (existingRequest != null) {
+            throw new RuntimeException("该订单已存在待处理的退货申请");
         }
 
-        LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(OrderInfo::getId, orderId);
-        wrapper.set(OrderInfo::getStatus, "refunded");
-        wrapper.set(OrderInfo::getUpdateTime, new Date());
-        orderInfoMapper.update(null, wrapper);
-
-        recordOrderStatusChange(orderId, order.getStatus(), "refunded", "用户");
+        OrderReturnRequest returnRequest = new OrderReturnRequest();
+        returnRequest.setOrderId(orderId);
+        returnRequest.setUserId(order.getUserId());
+        returnRequest.setReturnReason(reason);
+        returnRequest.setRequestTime(new Date());
+        returnRequest.setStatus("pending");
+        returnRequest.setRefundAmount(order.getActualAmount());
+        orderReturnRequestMapper.insert(returnRequest);
     }
 
     // 用户取消订单
@@ -497,9 +608,9 @@ public class OrderService {
         orderDeliveryMapper.update(null, wrapper);
     }
 
-    // 面交订单确认完成
+    // 商家确认面交发货
     @Transactional
-    public void completeFaceToFaceOrder(Integer orderId) {
+    public void shipFaceToFaceOrder(Integer orderId) {
         OrderInfo order = orderInfoMapper.selectById(orderId);
         if (order == null) {
             throw new RuntimeException("订单不存在");
@@ -514,13 +625,45 @@ public class OrderService {
             throw new RuntimeException("面交信息尚未确认");
         }
 
+        if (!"paid".equals(order.getStatus())) {
+            throw new RuntimeException("订单状态不允许发货");
+        }
+
         LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(OrderInfo::getId, orderId);
-        wrapper.set(OrderInfo::getStatus, "completed");
+        wrapper.set(OrderInfo::getStatus, "shipped");
         wrapper.set(OrderInfo::getUpdateTime, new Date());
         orderInfoMapper.update(null, wrapper);
 
-        recordOrderStatusChange(orderId, order.getStatus(), "completed", "用户");
+        recordOrderStatusChange(orderId, "paid", "shipped", "商家");
+    }
+
+    // 面交订单买家确认收货
+    @Transactional
+    public void completeFaceToFaceOrder(Integer orderId) {
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+
+        OrderDelivery delivery = getOrderDelivery(orderId);
+        if (delivery == null || !"face_to_face".equals(delivery.getDeliveryType())) {
+            throw new RuntimeException("该订单不是面交订单");
+        }
+
+        if (!"shipped".equals(order.getStatus())) {
+            throw new RuntimeException("商家尚未确认发货，请等待商家确认");
+        }
+
+        LambdaUpdateWrapper<OrderInfo> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(OrderInfo::getId, orderId);
+        wrapper.set(OrderInfo::getStatus, "received");
+        wrapper.set(OrderInfo::getUpdateTime, new Date());
+        orderInfoMapper.update(null, wrapper);
+
+        settleEscrowToMerchant(orderId);
+
+        recordOrderStatusChange(orderId, "shipped", "received", "用户");
     }
 
     // 获取用户订单列表
@@ -572,6 +715,12 @@ public class OrderService {
             }
         }
 
+        LambdaQueryWrapper<OrderDelivery> deliveryWrapper = new LambdaQueryWrapper<>();
+        deliveryWrapper.in(OrderDelivery::getOrderId, orderIds);
+        List<OrderDelivery> deliveries = orderDeliveryMapper.selectList(deliveryWrapper);
+        Map<Integer, OrderDelivery> deliveryMap = deliveries.stream()
+                .collect(Collectors.toMap(OrderDelivery::getOrderId, d -> d));
+
         List<OrderListVO> result = new ArrayList<>();
         for (OrderInfo order : orders) {
             OrderListVO vo = new OrderListVO();
@@ -581,6 +730,11 @@ public class OrderService {
             vo.setCreateTime(order.getCreateTime());
             vo.setTotalAmount(order.getTotalAmount());
             vo.setActualAmount(order.getActualAmount());
+
+            OrderDelivery delivery = deliveryMap.get(order.getId());
+            if (delivery != null) {
+                vo.setDeliveryType(delivery.getDeliveryType());
+            }
 
             List<OrderItem> orderItems = itemsByOrder.getOrDefault(order.getId(), new ArrayList<>());
             int totalQuantity = 0;
@@ -642,11 +796,11 @@ public class OrderService {
         List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
 
         for (OrderInfo order : orders) {
-            order.setStatus("completed");
+            order.setStatus("received");
             order.setUpdateTime(new Date());
             orderInfoMapper.updateById(order);
 
-            recordOrderStatusChange(order.getId(), "shipped", "completed", "system");
+            recordOrderStatusChange(order.getId(), "shipped", "received", "system");
         }
     }
 
@@ -682,5 +836,342 @@ public class OrderService {
 
             recordOrderStatusChange(order.getId(), "pending", "cancelled", "system");
         }
+    }
+
+    public OrderDetailVO getOrderDetail(Integer orderId) {
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+
+        OrderDetailVO vo = new OrderDetailVO();
+        vo.setId(order.getId());
+        vo.setOrderNo(order.getOrderNo());
+        vo.setStatus(order.getStatus());
+        vo.setCreateTime(order.getCreateTime());
+        vo.setBuyerOfferPrice(order.getBuyerOfferPrice());
+
+        OrderDelivery delivery = getOrderDelivery(orderId);
+        if (delivery != null) {
+            vo.setDeliveryType(delivery.getDeliveryType());
+        }
+
+        LambdaQueryWrapper<OrderStatusLog> payLogWrapper = new LambdaQueryWrapper<>();
+        payLogWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        payLogWrapper.eq(OrderStatusLog::getNewStatus, "paid");
+        payLogWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        payLogWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderStatusLog payLog = orderStatusLogMapper.selectOne(payLogWrapper);
+        if (payLog != null) {
+            vo.setPayTime(payLog.getOperateTime());
+        }
+
+        LambdaQueryWrapper<OrderStatusLog> shipLogWrapper = new LambdaQueryWrapper<>();
+        shipLogWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        shipLogWrapper.eq(OrderStatusLog::getNewStatus, "shipped");
+        shipLogWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        shipLogWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderStatusLog shipLog = orderStatusLogMapper.selectOne(shipLogWrapper);
+        if (shipLog != null) {
+            vo.setDeliveryTime(shipLog.getOperateTime());
+        }
+
+        OrderDetailDeliveryVO deliveryVO = new OrderDetailDeliveryVO();
+        if (delivery != null) {
+            deliveryVO.setReceiverName(delivery.getReceiverName());
+            deliveryVO.setReceiverPhone(delivery.getReceiverPhone());
+            deliveryVO.setReceiverAddress(delivery.getReceiverAddress());
+            deliveryVO.setTrackingNumber(delivery.getTrackingNumber());
+            deliveryVO.setMeetTime(delivery.getMeetTime());
+            deliveryVO.setMeetLocation(delivery.getMeetLocation());
+            deliveryVO.setMeetStatus(delivery.getMeetStatus());
+        }
+
+        SysUser merchant = sysUserMapper.selectById(order.getMerchantId());
+        if (merchant != null) {
+            deliveryVO.setSellerPhone(merchant.getPhone());
+        }
+        vo.setDelivery(deliveryVO);
+
+        List<OrderItem> items = getOrderItems(orderId);
+        List<OrderDetailProductVO> productVOs = new ArrayList<>();
+        double productTotal = 0.0;
+
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            if (product != null) {
+                OrderDetailProductVO productVO = new OrderDetailProductVO();
+                productVO.setId(product.getId());
+                productVO.setProductName(product.getProductName());
+                productVO.setPrice(item.getPrice());
+                productVO.setQuantity(item.getQuantity());
+
+                LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                imageWrapper.eq(ProductImage::getProductId, item.getProductId());
+                imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                imageWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+                ProductImage firstImage = productImageMapper.selectOne(imageWrapper);
+                if (firstImage != null) {
+                    productVO.setProductImage(firstImage.getImageUrl());
+                }
+
+                productVOs.add(productVO);
+                productTotal += item.getPrice() * item.getQuantity();
+            }
+        }
+
+        vo.setProducts(productVOs);
+        vo.setProductTotal(productTotal);
+        vo.setPointsDiscount(order.getPointsDeducted() != null ? order.getPointsDeducted().doubleValue() : 0.0);
+        vo.setTotalAmount(order.getActualAmount());
+
+        return vo;
+    }
+
+    // 商家审核退货申请（同意）
+    @Transactional
+    public void approveReturnRequest(Integer requestId, String auditRemark) {
+        OrderReturnRequest returnRequest = orderReturnRequestMapper.selectById(requestId);
+        if (returnRequest == null) {
+            throw new RuntimeException("退货申请不存在");
+        }
+
+        if (!"pending".equals(returnRequest.getStatus())) {
+            throw new RuntimeException("该退货申请已处理");
+        }
+
+        OrderInfo order = orderInfoMapper.selectById(returnRequest.getOrderId());
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+
+        LambdaQueryWrapper<EscrowAccount> escrowWrapper = new LambdaQueryWrapper<>();
+        escrowWrapper.eq(EscrowAccount::getOrderId, order.getId());
+        escrowWrapper.eq(EscrowAccount::getStatus, "holding");
+        EscrowAccount escrowAccount = escrowAccountMapper.selectOne(escrowWrapper);
+
+        if (escrowAccount != null) {
+            walletService.deposit(returnRequest.getUserId(), escrowAccount.getAmount(), 
+                    "退货退款，订单号：" + order.getOrderNo());
+
+            escrowAccount.setStatus("refunded");
+            escrowAccount.setSettleTime(new Date());
+            escrowAccountMapper.updateById(escrowAccount);
+        } else {
+            // 从商家钱包扣款
+            walletService.pay(order.getMerchantId(), returnRequest.getRefundAmount(), 
+                    "退货扣款，订单号：" + order.getOrderNo());
+            // 退款给买家
+            walletService.deposit(returnRequest.getUserId(), returnRequest.getRefundAmount(), 
+                    "退货退款，订单号：" + order.getOrderNo());
+        }
+
+        if (order.getPointsDeducted() != null && order.getPointsDeducted() > 0) {
+            pointsService.addPoints(order.getUserId(), order.getPointsDeducted(), 
+                    "退货退还积分，订单号：" + order.getOrderNo());
+        }
+
+        List<OrderItem> items = getOrderItems(order.getId());
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            if (product != null) {
+                LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+                productWrapper.eq(Product::getId, item.getProductId());
+                productWrapper.set(Product::getStock, product.getStock() + item.getQuantity());
+                productWrapper.set(Product::getSalesCount, Math.max(0, product.getSalesCount() - item.getQuantity()));
+                if ("sold_out".equals(product.getStatus()) && product.getStock() + item.getQuantity() > 0) {
+                    productWrapper.set(Product::getStatus, "published");
+                }
+                productMapper.update(null, productWrapper);
+            }
+        }
+
+        LambdaUpdateWrapper<OrderInfo> orderWrapper = new LambdaUpdateWrapper<>();
+        orderWrapper.eq(OrderInfo::getId, order.getId());
+        orderWrapper.set(OrderInfo::getStatus, "refunded");
+        orderWrapper.set(OrderInfo::getUpdateTime, new Date());
+        orderInfoMapper.update(null, orderWrapper);
+
+        returnRequest.setStatus("approved");
+        returnRequest.setAuditTime(new Date());
+        returnRequest.setAuditRemark(auditRemark);
+        orderReturnRequestMapper.updateById(returnRequest);
+
+        OrderReturnRequest completedRequest = new OrderReturnRequest();
+        completedRequest.setId(returnRequest.getId());
+        completedRequest.setStatus("completed");
+        orderReturnRequestMapper.updateById(completedRequest);
+
+        recordOrderStatusChange(order.getId(), "received", "refunded", "商家");
+    }
+
+    // 商家审核退货申请（拒绝）
+    @Transactional
+    public void rejectReturnRequest(Integer requestId, String auditRemark) {
+        OrderReturnRequest returnRequest = orderReturnRequestMapper.selectById(requestId);
+        if (returnRequest == null) {
+            throw new RuntimeException("退货申请不存在");
+        }
+
+        if (!"pending".equals(returnRequest.getStatus())) {
+            throw new RuntimeException("该退货申请已处理");
+        }
+
+        returnRequest.setStatus("rejected");
+        returnRequest.setAuditTime(new Date());
+        returnRequest.setAuditRemark(auditRemark);
+        orderReturnRequestMapper.updateById(returnRequest);
+    }
+
+    // 获取商家的退货申请列表
+    public List<OrderReturnRequest> getMerchantReturnRequests(Integer merchantId, String status) {
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getMerchantId, merchantId);
+        List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
+
+        if (orders.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Integer> orderIds = orders.stream()
+                .map(OrderInfo::getId)
+                .collect(Collectors.toList());
+
+        LambdaQueryWrapper<OrderReturnRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.in(OrderReturnRequest::getOrderId, orderIds);
+        if (status != null && !status.isEmpty()) {
+            wrapper.eq(OrderReturnRequest::getStatus, status);
+        }
+        wrapper.orderByDesc(OrderReturnRequest::getRequestTime);
+        return orderReturnRequestMapper.selectList(wrapper);
+    }
+
+    // 获取用户的退货申请列表
+    public List<OrderReturnRequest> getUserReturnRequests(Integer userId) {
+        LambdaQueryWrapper<OrderReturnRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderReturnRequest::getUserId, userId);
+        wrapper.orderByDesc(OrderReturnRequest::getRequestTime);
+        return orderReturnRequestMapper.selectList(wrapper);
+    }
+
+    // 获取退货申请详情
+    public OrderReturnRequest getReturnRequestById(Integer requestId) {
+        return orderReturnRequestMapper.selectById(requestId);
+    }
+
+    // 获取订单的退货申请
+    public OrderReturnRequest getReturnRequestByOrderId(Integer orderId) {
+        LambdaQueryWrapper<OrderReturnRequest> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderReturnRequest::getOrderId, orderId);
+        wrapper.orderByDesc(OrderReturnRequest::getRequestTime);
+        wrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        return orderReturnRequestMapper.selectOne(wrapper);
+    }
+
+    // 发货后7天自动确认收货
+    @Transactional
+    public void autoCompleteShippedOrders() {
+        Date sevenDaysAgo = new Date(System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000);
+
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getStatus, "shipped");
+        wrapper.lt(OrderInfo::getUpdateTime, sevenDaysAgo);
+
+        List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
+
+        for (OrderInfo order : orders) {
+            order.setStatus("received");
+            order.setUpdateTime(new Date());
+            orderInfoMapper.updateById(order);
+
+            recordOrderStatusChange(order.getId(), "shipped", "received", "system");
+        }
+    }
+
+    // 自动将超过24小时的 received 订单转为 completed
+    @Transactional
+    public void autoCompleteReceivedOrders() {
+        Date twentyFourHoursAgo = new Date(System.currentTimeMillis() - 24 * 60 * 60 * 1000);
+
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getStatus, "received");
+        wrapper.lt(OrderInfo::getUpdateTime, twentyFourHoursAgo);
+
+        List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
+
+        for (OrderInfo order : orders) {
+            LambdaQueryWrapper<OrderReturnRequest> returnWrapper = new LambdaQueryWrapper<>();
+            returnWrapper.eq(OrderReturnRequest::getOrderId, order.getId());
+            returnWrapper.in(OrderReturnRequest::getStatus, "pending", "approved");
+            OrderReturnRequest existingRequest = orderReturnRequestMapper.selectOne(returnWrapper);
+
+            if (existingRequest == null) {
+                order.setStatus("completed");
+                order.setUpdateTime(new Date());
+                orderInfoMapper.updateById(order);
+
+                recordOrderStatusChange(order.getId(), "received", "completed", "system");
+            }
+        }
+    }
+
+    // 结算托管资金给商家（扣除平台费用）
+    @Transactional
+    public void settleEscrowToMerchant(Integer orderId) {
+        LambdaQueryWrapper<EscrowAccount> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(EscrowAccount::getOrderId, orderId);
+        wrapper.eq(EscrowAccount::getStatus, "holding");
+        EscrowAccount escrowAccount = escrowAccountMapper.selectOne(wrapper);
+
+        if (escrowAccount == null) {
+            return;
+        }
+
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            return;
+        }
+
+        Double totalAmount = escrowAccount.getAmount();
+        Double merchantAmount = totalAmount;
+        Double platformFee = 0.0;
+
+        LambdaQueryWrapper<MerchantInfo> merchantWrapper = new LambdaQueryWrapper<>();
+        merchantWrapper.eq(MerchantInfo::getUserId, order.getMerchantId());
+        MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantWrapper);
+
+        if (merchantInfo != null && merchantInfo.getLevelId() != null) {
+            MerchantLevel merchantLevel = merchantLevelMapper.selectById(merchantInfo.getLevelId());
+            if (merchantLevel != null && merchantLevel.getRate() != null) {
+                platformFee = Math.round(totalAmount * merchantLevel.getRate() * 100.0) / 100.0;
+                merchantAmount = totalAmount - platformFee;
+            }
+        }
+
+        walletService.deposit(order.getMerchantId(), merchantAmount, "订单结算，订单号：" + order.getOrderNo());
+
+        escrowAccount.setStatus("settled");
+        escrowAccount.setSettleTime(new Date());
+        escrowAccountMapper.updateById(escrowAccount);
+    }
+
+    // 获取用户最近一次使用的快递地址
+    public OrderDelivery getLastUsedExpressAddress(Integer userId) {
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getUserId, userId);
+        orderWrapper.orderByDesc(OrderInfo::getCreateTime);
+        List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
+
+        for (OrderInfo order : orders) {
+            LambdaQueryWrapper<OrderDelivery> deliveryWrapper = new LambdaQueryWrapper<>();
+            deliveryWrapper.eq(OrderDelivery::getOrderId, order.getId());
+            deliveryWrapper.eq(OrderDelivery::getDeliveryType, "express");
+            OrderDelivery delivery = orderDeliveryMapper.selectOne(deliveryWrapper);
+            if (delivery != null && delivery.getReceiverName() != null && delivery.getReceiverPhone() != null && delivery.getReceiverAddress() != null) {
+                return delivery;
+            }
+        }
+
+        return null;
     }
 }

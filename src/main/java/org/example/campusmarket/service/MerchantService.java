@@ -108,7 +108,7 @@ public class MerchantService {
             // 计算商家的月交易额
             LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
             orderWrapper.eq(OrderInfo::getMerchantId, merchant.getId());
-            orderWrapper.eq(OrderInfo::getStatus, "completed");
+            orderWrapper.in(OrderInfo::getStatus, "received", "completed");
             orderWrapper.ge(OrderInfo::getCreateTime, lastMonth);
             List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
             

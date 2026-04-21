@@ -16,5 +16,6 @@ public class OrderListVO {
     private Double totalAmount;
     private Double actualAmount;
     private Integer totalQuantity;
+    private String deliveryType;
     private List<OrderProductVO> products;
 }
