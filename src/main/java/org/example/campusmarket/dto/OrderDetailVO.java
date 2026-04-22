@@ -24,4 +24,18 @@ public class OrderDetailVO {
     private Double productTotal;
     private Double pointsDiscount;
     private Double totalAmount;
+    private ReturnRequestVO returnRequest;
+
+    @Data
+    public static class ReturnRequestVO {
+        private Integer id;
+        private String returnReason;
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+        private Date requestTime;
+        private String status;
+        @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
+        private Date auditTime;
+        private String auditRemark;
+        private Double refundAmount;
+    }
 }

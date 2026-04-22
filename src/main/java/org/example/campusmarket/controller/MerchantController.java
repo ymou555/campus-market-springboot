@@ -2,6 +2,8 @@ package org.example.campusmarket.controller;
 
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
+import org.example.campusmarket.entity.UserBlacklist;
+import org.example.campusmarket.service.BlacklistService;
 import org.example.campusmarket.service.MerchantService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -16,6 +18,8 @@ import java.util.Map;
 public class MerchantController {
     @Autowired
     private MerchantService merchantService;
+    @Autowired
+    private BlacklistService blacklistService;
 
     // 获取商家信息
     @GetMapping("/info")
@@ -125,6 +129,55 @@ public class MerchantController {
         result.put("code", 200);
         result.put("message", "获取成功");
         result.put("data", stats);
+        return result;
+    }
+    
+    // 商家拉黑买家
+    @PostMapping("/blacklist/add")
+    public Map<String, Object> blacklistUser(
+            @RequestParam Integer merchantId,
+            @RequestParam Integer userId,
+            @RequestParam String reason) {
+        blacklistService.blacklistUser(userId, merchantId, reason);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "拉黑成功");
+        return result;
+    }
+    
+    // 商家移除拉黑
+    @PostMapping("/blacklist/remove")
+    public Map<String, Object> removeFromBlacklist(
+            @RequestParam Integer merchantId,
+            @RequestParam Integer userId) {
+        blacklistService.removeFromBlacklist(userId, merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "移除拉黑成功");
+        return result;
+    }
+    
+    // 获取商家的黑名单列表
+    @GetMapping("/blacklist/list")
+    public Map<String, Object> getBlacklist(@RequestParam Integer merchantId) {
+        List<UserBlacklist> blacklist = blacklistService.getMerchantBlacklist(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", blacklist);
+        return result;
+    }
+    
+    // 检查用户是否被商家拉黑
+    @GetMapping("/blacklist/check")
+    public Map<String, Object> checkBlacklist(
+            @RequestParam Integer merchantId,
+            @RequestParam Integer userId) {
+        boolean isBlacklisted = blacklistService.isUserBlacklisted(userId, merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "查询成功");
+        result.put("isBlacklisted", isBlacklisted);
         return result;
     }
 }

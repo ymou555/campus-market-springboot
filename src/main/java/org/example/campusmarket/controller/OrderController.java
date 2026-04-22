@@ -103,18 +103,6 @@ public class OrderController {
         return result;
     }
 
-    // 申请退货
-    @PostMapping("/refund")
-    public Map<String, Object> applyRefund(
-            @RequestParam Integer orderId,
-            @RequestParam String reason) {
-        orderService.applyRefund(orderId, reason);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "退货申请成功");
-        return result;
-    }
-
     // 用户取消订单
     @PostMapping("/cancel")
     public Map<String, Object> cancelOrder(@RequestParam Integer orderId) {

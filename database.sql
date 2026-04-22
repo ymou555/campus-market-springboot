@@ -126,7 +126,7 @@ CREATE TABLE order_info (
     total_amount DECIMAL(18,2) NOT NULL,
     actual_amount DECIMAL(18,2) NOT NULL,
     points_deducted INT DEFAULT 0,
-    status NVARCHAR(20) NOT NULL, -- pending, paid, shipped, received, completed, refunded, bargaining, cancelled
+    status NVARCHAR(20) NOT NULL, -- pending, paid, shipped, received, returning, completed, refunded, bargaining, cancelled
     create_time DATETIME DEFAULT GETDATE(),
     update_time DATETIME DEFAULT GETDATE(),
     FOREIGN KEY (user_id) REFERENCES sys_user(id),
@@ -171,7 +171,7 @@ CREATE TABLE transaction_record (
     id INT PRIMARY KEY IDENTITY(1,1),
     user_id INT NOT NULL,
     amount DECIMAL(18,2) NOT NULL,
-    type NVARCHAR(20) NOT NULL, -- deposit, withdraw, payment, refund
+    type NVARCHAR(20) NOT NULL, -- deposit, withdraw, payment, refund, fee
     status NVARCHAR(20) NOT NULL, -- success, failed, pending
     transaction_time DATETIME DEFAULT GETDATE(),
     remark NVARCHAR(200),

@@ -132,6 +132,27 @@ public class WalletService {
         transactionRecordMapper.insert(record);
     }
 
+    // 平台手续费
+    @Transactional
+    public void fee(Integer userId, Double amount, String remark) {
+        // 更新钱包余额
+        LambdaUpdateWrapper<Wallet> walletWrapper = new LambdaUpdateWrapper<>();
+        walletWrapper.eq(Wallet::getUserId, userId);
+        walletWrapper.setSql("balance = balance + " + amount);
+        walletWrapper.set(Wallet::getLastUpdateTime, new Date());
+        walletMapper.update(null, walletWrapper);
+
+        // 记录交易流水
+        TransactionRecord record = new TransactionRecord();
+        record.setUserId(userId);
+        record.setAmount(amount);
+        record.setType("fee");
+        record.setStatus("success");
+        record.setTransactionTime(new Date());
+        record.setRemark(remark);
+        transactionRecordMapper.insert(record);
+    }
+
     // 获取交易流水列表
     public List<TransactionRecord> getTransactionRecords(Integer userId, String type) {
         LambdaQueryWrapper<TransactionRecord> wrapper = new LambdaQueryWrapper<>();

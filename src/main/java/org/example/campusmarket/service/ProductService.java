@@ -12,6 +12,8 @@ import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.Category;
 import org.example.campusmarket.entity.CategoryTree;
+import org.example.campusmarket.entity.MerchantBanRecord;
+import org.example.campusmarket.mapper.MerchantBanRecordMapper;
 import org.example.campusmarket.mapper.ProductAuditMapper;
 import org.example.campusmarket.mapper.ProductImageMapper;
 import org.example.campusmarket.mapper.ProductMapper;
@@ -47,10 +49,17 @@ public class ProductService {
     private MerchantLevelMapper merchantLevelMapper;
     @Autowired
     private CategoryMapper categoryMapper;
+    @Autowired
+    private MerchantBanRecordMapper merchantBanRecordMapper;
 
     // 发布商品
     @Transactional
     public void publishProduct(Product product, List<String> imageUrls) {
+        // 检查商家是否被封禁
+        if (isMerchantBanned(product.getMerchantId())) {
+            throw new RuntimeException("商家已被封禁，无法发布商品");
+        }
+        
         // 设置初始状态
         product.setStatus("pending");
         product.setSalesCount(0);
@@ -339,5 +348,35 @@ public class ProductService {
                     return tree;
                 })
                 .collect(java.util.stream.Collectors.toList());
+    }
+    
+    // 批量下架商家所有商品（惩罚功能）
+    @Transactional
+    public int offlineAllMerchantProducts(Integer merchantId) {
+        LambdaUpdateWrapper<Product> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(Product::getMerchantId, merchantId);
+        wrapper.in(Product::getStatus, "published", "pending");
+        wrapper.set(Product::getStatus, "offline");
+        wrapper.set(Product::getUpdateTime, new Date());
+        
+        return productMapper.update(null, wrapper);
+    }
+    
+    // 检查商家是否被封禁
+    private boolean isMerchantBanned(Integer merchantId) {
+        // 先检查用户状态
+        SysUser user = sysUserMapper.selectById(merchantId);
+        if (user == null || !"blocked".equals(user.getStatus())) {
+            return false;
+        }
+        
+        // 查询有效的封禁记录
+        LambdaQueryWrapper<MerchantBanRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
+        wrapper.eq(MerchantBanRecord::getStatus, "active");
+        wrapper.gt(MerchantBanRecord::getBanEndTime, new Date());
+        
+        MerchantBanRecord banRecord = merchantBanRecordMapper.selectOne(wrapper);
+        return banRecord != null;
     }
 }

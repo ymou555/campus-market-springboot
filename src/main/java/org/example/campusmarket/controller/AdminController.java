@@ -6,7 +6,11 @@ import org.example.campusmarket.service.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -22,6 +26,8 @@ public class AdminController {
     private MerchantService merchantService;
     @Autowired
     private WalletService walletService;
+    @Autowired
+    private BlacklistService blacklistService;
 
     // 用户审核
     @PostMapping("/user/audit")
@@ -95,17 +101,26 @@ public class AdminController {
         return result;
     }
 
-    // 封禁商家
+    // 封禁商家（限时封禁）
     @PostMapping("/merchant/ban")
     public Map<String, Object> banMerchant(
             @RequestParam Integer merchantId,
             @RequestParam String reason,
             @RequestParam String endTime) {
-        merchantService.banMerchant(merchantId, reason, new java.util.Date());
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "封禁成功");
-        return result;
+        try {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            Date banEndTime = sdf.parse(endTime);
+            merchantService.banMerchant(merchantId, reason, banEndTime);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("message", "封禁成功");
+            return result;
+        } catch (ParseException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", "时间格式错误，请使用 yyyy-MM-dd HH:mm:ss 格式");
+            return result;
+        }
     }
 
     // 解除商家封禁
@@ -147,22 +162,59 @@ public class AdminController {
     // 商品下架惩罚（违规商家全部商品下架）
     @PostMapping("/merchant/products/offline")
     public Map<String, Object> offlineMerchantProducts(@RequestParam Integer merchantId) {
-        // 这里需要在ProductService中添加相应的方法
+        int count = productService.offlineAllMerchantProducts(merchantId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("message", "操作成功");
+        result.put("message", "下架成功，共下架 " + count + " 件商品");
+        result.put("offlineCount", count);
         return result;
     }
 
-    // 用户拉黑
+    // 用户拉黑（平台拉黑）
     @PostMapping("/user/blacklist")
     public Map<String, Object> blacklistUser(
             @RequestParam Integer userId,
+            @RequestParam Integer adminId,
             @RequestParam String reason) {
-        // 这里需要实现用户拉黑功能
+        blacklistService.blacklistUser(userId, adminId, reason);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "拉黑成功");
+        return result;
+    }
+    
+    // 移除拉黑
+    @PostMapping("/user/blacklist/remove")
+    public Map<String, Object> removeFromBlacklist(
+            @RequestParam Integer userId,
+            @RequestParam Integer adminId) {
+        blacklistService.removeFromBlacklist(userId, adminId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "移除拉黑成功");
+        return result;
+    }
+    
+    // 获取商家封禁记录
+    @GetMapping("/merchant/ban/history")
+    public Map<String, Object> getMerchantBanHistory(@RequestParam Integer merchantId) {
+        List<MerchantBanRecord> history = merchantService.getBanHistory(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", history);
+        return result;
+    }
+    
+    // 获取商家当前封禁状态
+    @GetMapping("/merchant/ban/status")
+    public Map<String, Object> getMerchantBanStatus(@RequestParam Integer merchantId) {
+        MerchantBanRecord banRecord = merchantService.getActiveBanRecord(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", banRecord);
+        result.put("isBanned", banRecord != null);
         return result;
     }
 }

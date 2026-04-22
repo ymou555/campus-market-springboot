@@ -2,12 +2,14 @@ package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.example.campusmarket.entity.MerchantBanRecord;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.OrderInfo;
 import org.example.campusmarket.entity.Product;
 import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.entity.SysUser;
+import org.example.campusmarket.mapper.MerchantBanRecordMapper;
 import org.example.campusmarket.mapper.MerchantInfoMapper;
 import org.example.campusmarket.mapper.MerchantLevelMapper;
 import org.example.campusmarket.mapper.OrderInfoMapper;
@@ -36,6 +38,8 @@ public class MerchantService {
     private ReviewMapper reviewMapper;
     @Autowired
     private ProductMapper productMapper;
+    @Autowired
+    private MerchantBanRecordMapper merchantBanRecordMapper;
 
     // 获取商家信息
     public MerchantInfo getMerchantInfo(Integer userId) {
@@ -74,22 +78,76 @@ public class MerchantService {
         merchantInfoMapper.update(null, wrapper);
     }
 
-    // 封禁商家
+    // 封禁商家（限时封禁）
     public void banMerchant(Integer merchantId, String reason, Date endTime) {
-        // 这里可以实现商家封禁逻辑
-        // 例如更新商家状态为封禁，记录封禁原因和时间等
-        LambdaUpdateWrapper<SysUser> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(SysUser::getId, merchantId);
-        wrapper.set(SysUser::getStatus, "blocked");
-        sysUserMapper.update(null, wrapper);
+        // 更新商家状态为封禁
+        LambdaUpdateWrapper<SysUser> userWrapper = new LambdaUpdateWrapper<>();
+        userWrapper.eq(SysUser::getId, merchantId);
+        userWrapper.set(SysUser::getStatus, "blocked");
+        sysUserMapper.update(null, userWrapper);
+        
+        // 创建封禁记录
+        MerchantBanRecord banRecord = new MerchantBanRecord();
+        banRecord.setMerchantId(merchantId);
+        banRecord.setBanReason(reason);
+        banRecord.setBanStartTime(new Date());
+        banRecord.setBanEndTime(endTime);
+        banRecord.setStatus("active");
+        merchantBanRecordMapper.insert(banRecord);
     }
 
     // 解除商家封禁
     public void unbanMerchant(Integer merchantId) {
-        LambdaUpdateWrapper<SysUser> wrapper = new LambdaUpdateWrapper<>();
-        wrapper.eq(SysUser::getId, merchantId);
-        wrapper.set(SysUser::getStatus, "active");
-        sysUserMapper.update(null, wrapper);
+        // 更新商家状态为激活
+        LambdaUpdateWrapper<SysUser> userWrapper = new LambdaUpdateWrapper<>();
+        userWrapper.eq(SysUser::getId, merchantId);
+        userWrapper.set(SysUser::getStatus, "active");
+        sysUserMapper.update(null, userWrapper);
+        
+        // 更新封禁记录状态为过期
+        LambdaUpdateWrapper<MerchantBanRecord> banWrapper = new LambdaUpdateWrapper<>();
+        banWrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
+        banWrapper.eq(MerchantBanRecord::getStatus, "active");
+        banWrapper.set(MerchantBanRecord::getStatus, "expired");
+        merchantBanRecordMapper.update(null, banWrapper);
+    }
+    
+    // 检查商家是否被封禁
+    public boolean isMerchantBanned(Integer merchantId) {
+        // 先检查用户状态
+        SysUser user = sysUserMapper.selectById(merchantId);
+        if (user == null || !"blocked".equals(user.getStatus())) {
+            return false;
+        }
+        
+        // 查询有效的封禁记录
+        LambdaQueryWrapper<MerchantBanRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
+        wrapper.eq(MerchantBanRecord::getStatus, "active");
+        wrapper.gt(MerchantBanRecord::getBanEndTime, new Date());
+        
+        MerchantBanRecord banRecord = merchantBanRecordMapper.selectOne(wrapper);
+        return banRecord != null;
+    }
+    
+    // 获取商家当前封禁记录
+    public MerchantBanRecord getActiveBanRecord(Integer merchantId) {
+        LambdaQueryWrapper<MerchantBanRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
+        wrapper.eq(MerchantBanRecord::getStatus, "active");
+        wrapper.gt(MerchantBanRecord::getBanEndTime, new Date());
+        wrapper.orderByDesc(MerchantBanRecord::getBanStartTime);
+        
+        return merchantBanRecordMapper.selectOne(wrapper);
+    }
+    
+    // 获取商家封禁历史
+    public List<MerchantBanRecord> getBanHistory(Integer merchantId) {
+        LambdaQueryWrapper<MerchantBanRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
+        wrapper.orderByDesc(MerchantBanRecord::getBanStartTime);
+        
+        return merchantBanRecordMapper.selectList(wrapper);
     }
 
     // 动态调整所有商家等级
