@@ -1,6 +1,7 @@
 package org.example.campusmarket.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.UserWithBlacklistDTO;
 import org.example.campusmarket.entity.*;
 import org.example.campusmarket.service.*;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -34,7 +35,7 @@ public class AdminController {
     public Map<String, Object> auditUser(
             @RequestParam Integer userId,
             @RequestParam String auditStatus,
-            @RequestParam String remark) {
+            @RequestParam(required = false) String remark) {
         userService.auditUser(userId, auditStatus, remark);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
@@ -68,6 +69,21 @@ public class AdminController {
         result.put("total", userPage.getTotal());
         return result;
     }
+    
+    // 获取用户列表（支持筛选和搜索，带拉黑类型）
+    @GetMapping("/user/list")
+    public Map<String, Object> getUserList(
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String username) {
+        List<UserWithBlacklistDTO> users = userService.getUserListWithBlacklistType(role, status, username);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", users);
+        result.put("total", users.size());
+        return result;
+    }
 
     // 获取待审核商品列表
     @GetMapping("/product/pending")
@@ -78,26 +94,6 @@ public class AdminController {
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        return result;
-    }
-
-    // 封禁用户
-    @PostMapping("/user/block")
-    public Map<String, Object> blockUser(@RequestParam Integer userId) {
-        userService.blockUser(userId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "封禁成功");
-        return result;
-    }
-
-    // 解封用户
-    @PostMapping("/user/unblock")
-    public Map<String, Object> unblockUser(@RequestParam Integer userId) {
-        userService.unblockUser(userId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "解封成功");
         return result;
     }
 

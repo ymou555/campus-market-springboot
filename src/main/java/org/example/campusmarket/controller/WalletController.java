@@ -27,12 +27,12 @@ public class WalletController {
         return result;
     }
 
-    // 充值
+    // 管理员充值（管理员给用户充值）
     @PostMapping("/deposit")
     public Map<String, Object> deposit(
             @RequestParam Integer userId,
-            @RequestParam Double amount,
-            @RequestParam String remark) {
+            @RequestParam Double amount) {
+        String remark = "管理员充值";
         walletService.deposit(userId, amount, remark);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
