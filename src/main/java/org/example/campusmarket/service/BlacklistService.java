@@ -2,6 +2,7 @@ package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import org.example.campusmarket.dto.BlacklistUserDTO;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.entity.UserBlacklist;
 import org.example.campusmarket.mapper.SysUserMapper;
@@ -10,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -138,7 +140,7 @@ public class BlacklistService {
         LambdaQueryWrapper<SysUser> adminWrapper = new LambdaQueryWrapper<>();
         adminWrapper.eq(SysUser::getRole, "admin");
         List<SysUser> admins = sysUserMapper.selectList(adminWrapper);
-        List<Integer> adminIds = new java.util.ArrayList<>();
+        List<Integer> adminIds = new ArrayList<>();
         for (SysUser admin : admins) {
             adminIds.add(admin.getId());
         }
@@ -161,5 +163,61 @@ public class BlacklistService {
         } else {
             return "none"; // 未被拉黑
         }
+    }
+    
+    // 获取黑名单用户详细信息列表
+    public List<BlacklistUserDTO> getBlacklistUserList() {
+        List<BlacklistUserDTO> result = new ArrayList<>();
+        
+        // 查询所有管理员ID
+        LambdaQueryWrapper<SysUser> adminQueryWrapper = new LambdaQueryWrapper<>();
+        adminQueryWrapper.eq(SysUser::getRole, "admin");
+        List<SysUser> admins = sysUserMapper.selectList(adminQueryWrapper);
+        List<Integer> adminIds = new ArrayList<>();
+        for (SysUser admin : admins) {
+            adminIds.add(admin.getId());
+        }
+        
+        // 查询所有拉黑记录
+        LambdaQueryWrapper<UserBlacklist> wrapper = new LambdaQueryWrapper<>();
+        wrapper.orderByDesc(UserBlacklist::getCreateTime);
+        List<UserBlacklist> blacklistRecords = userBlacklistMapper.selectList(wrapper);
+        
+        // 遍历每条拉黑记录，构建DTO
+        for (UserBlacklist record : blacklistRecords) {
+            BlacklistUserDTO dto = new BlacklistUserDTO();
+            
+            // 获取被拉黑用户信息
+            SysUser blacklistedUser = sysUserMapper.selectById(record.getUserId());
+            if (blacklistedUser == null) {
+                continue;
+            }
+            
+            dto.setId(blacklistedUser.getId());
+            dto.setUsername(blacklistedUser.getUsername());
+            dto.setName(blacklistedUser.getName());
+            dto.setReason(record.getReason());
+            dto.setTime(record.getCreateTime());
+            dto.setBlockedById(record.getBlacklistedBy());
+            
+            // 获取拉黑者信息
+            SysUser blocker = sysUserMapper.selectById(record.getBlacklistedBy());
+            if (blocker != null) {
+                dto.setBlockedBy(blocker.getName());
+            }
+            
+            // 判断拉黑类型
+            if (adminIds.contains(record.getBlacklistedBy())) {
+                dto.setBlacklistType("admin");
+                dto.setMerchantName(null);
+            } else {
+                dto.setBlacklistType("merchant");
+                dto.setMerchantName(blocker != null ? blocker.getName() : null);
+            }
+            
+            result.add(dto);
+        }
+        
+        return result;
     }
 }

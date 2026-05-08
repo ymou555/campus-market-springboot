@@ -1,6 +1,7 @@
 package org.example.campusmarket.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.BlacklistUserDTO;
 import org.example.campusmarket.dto.UserWithBlacklistDTO;
 import org.example.campusmarket.entity.*;
 import org.example.campusmarket.service.*;
@@ -188,6 +189,18 @@ public class AdminController {
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "移除拉黑成功");
+        return result;
+    }
+    
+    // 获取黑名单用户详细信息列表
+    @GetMapping("/user/blacklist/list")
+    public Map<String, Object> getBlacklistUserList() {
+        List<BlacklistUserDTO> blacklistUsers = blacklistService.getBlacklistUserList();
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", blacklistUsers);
+        result.put("total", blacklistUsers.size());
         return result;
     }
     
