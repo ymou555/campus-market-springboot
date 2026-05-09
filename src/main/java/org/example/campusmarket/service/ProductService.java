@@ -364,19 +364,16 @@ public class ProductService {
     
     // 检查商家是否被封禁
     private boolean isMerchantBanned(Integer merchantId) {
-        // 先检查用户状态
-        SysUser user = sysUserMapper.selectById(merchantId);
-        if (user == null || !"blocked".equals(user.getStatus())) {
+        // 检查商家店铺状态
+        LambdaQueryWrapper<MerchantInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(MerchantInfo::getUserId, merchantId);
+        MerchantInfo merchantInfo = merchantInfoMapper.selectOne(wrapper);
+        
+        if (merchantInfo == null) {
             return false;
         }
         
-        // 查询有效的封禁记录
-        LambdaQueryWrapper<MerchantBanRecord> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MerchantBanRecord::getMerchantId, merchantId);
-        wrapper.eq(MerchantBanRecord::getStatus, "active");
-        wrapper.gt(MerchantBanRecord::getBanEndTime, new Date());
-        
-        MerchantBanRecord banRecord = merchantBanRecordMapper.selectOne(wrapper);
-        return banRecord != null;
+        // 如果店铺状态为banned或closed，返回true
+        return "banned".equals(merchantInfo.getShopStatus()) || "closed".equals(merchantInfo.getShopStatus());
     }
 }

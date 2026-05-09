@@ -88,30 +88,6 @@ public class MerchantController {
         result.put("message", "调整成功");
         return result;
     }
-
-    // 封禁商家
-    @PostMapping("/ban")
-    public Map<String, Object> banMerchant(
-            @RequestParam Integer merchantId,
-            @RequestParam String reason,
-            @RequestParam String endTime) {
-        // 这里可以将endTime字符串转换为Date对象
-        merchantService.banMerchant(merchantId, reason, new Date());
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "封禁成功");
-        return result;
-    }
-
-    // 解除商家封禁
-    @PostMapping("/unban")
-    public Map<String, Object> unbanMerchant(@RequestParam Integer merchantId) {
-        merchantService.unbanMerchant(merchantId);
-        Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "解除封禁成功");
-        return result;
-    }
     
     // 根据商品ID获取商家统计信息
     @GetMapping("/stats")

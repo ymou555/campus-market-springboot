@@ -2,6 +2,8 @@ package org.example.campusmarket.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.dto.BlacklistUserDTO;
+import org.example.campusmarket.dto.MerchantDetailDTO;
+import org.example.campusmarket.dto.MerchantListDTO;
 import org.example.campusmarket.dto.UserWithBlacklistDTO;
 import org.example.campusmarket.entity.*;
 import org.example.campusmarket.service.*;
@@ -194,8 +196,10 @@ public class AdminController {
     
     // 获取黑名单用户详细信息列表
     @GetMapping("/user/blacklist/list")
-    public Map<String, Object> getBlacklistUserList() {
-        List<BlacklistUserDTO> blacklistUsers = blacklistService.getBlacklistUserList();
+    public Map<String, Object> getBlacklistUserList(
+            @RequestParam(required = false) String username,
+            @RequestParam(required = false) String blacklistType) {
+        List<BlacklistUserDTO> blacklistUsers = blacklistService.getBlacklistUserList(username, blacklistType);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
@@ -224,6 +228,51 @@ public class AdminController {
         result.put("message", "获取成功");
         result.put("data", banRecord);
         result.put("isBanned", banRecord != null);
+        return result;
+    }
+    
+    // 获取商家列表（管理员端）
+    @GetMapping("/merchant/list")
+    public Map<String, Object> getMerchantList(
+            @RequestParam(required = false) String shopName,
+            @RequestParam(required = false) String status) {
+        List<MerchantListDTO> merchants = merchantService.getMerchantList(shopName, status);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", merchants);
+        result.put("total", merchants.size());
+        return result;
+    }
+    
+    // 获取商家详细信息（管理员端）
+    @GetMapping("/merchant/detail")
+    public Map<String, Object> getMerchantDetail(@RequestParam Integer merchantId) {
+        MerchantDetailDTO detail = merchantService.getMerchantDetail(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", detail);
+        return result;
+    }
+    
+    // 关闭店铺
+    @PostMapping("/merchant/close")
+    public Map<String, Object> closeShop(@RequestParam Integer merchantId) {
+        merchantService.closeShop(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "店铺已关闭");
+        return result;
+    }
+    
+    // 重新开放店铺
+    @PostMapping("/merchant/reopen")
+    public Map<String, Object> reopenShop(@RequestParam Integer merchantId) {
+        merchantService.reopenShop(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "店铺已重新开放");
         return result;
     }
 }

@@ -41,6 +41,14 @@ public class ScheduledConfig {
         System.out.println("发货后7天自动确认收货任务执行完成: " + new Date());
     }
 
+    // 每10分钟执行一次，自动处理到期的封禁记录
+    @Scheduled(cron = "0 */10 * * * ?")
+    public void autoExpireBanRecords() {
+        System.out.println("开始执行自动处理到期封禁记录任务: " + new Date());
+        merchantService.autoExpireBanRecords();
+        System.out.println("自动处理到期封禁记录任务执行完成: " + new Date());
+    }
+
     // 每天凌晨1点执行一次
     // @Scheduled(cron = "0 0 1 * * ?")
     // public void autoCompleteOrders() {

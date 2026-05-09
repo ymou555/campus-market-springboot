@@ -166,7 +166,7 @@ public class BlacklistService {
     }
     
     // 获取黑名单用户详细信息列表
-    public List<BlacklistUserDTO> getBlacklistUserList() {
+    public List<BlacklistUserDTO> getBlacklistUserList(String username, String blacklistType) {
         List<BlacklistUserDTO> result = new ArrayList<>();
         
         // 查询所有管理员ID
@@ -213,6 +213,20 @@ public class BlacklistService {
             } else {
                 dto.setBlacklistType("merchant");
                 dto.setMerchantName(blocker != null ? blocker.getName() : null);
+            }
+            
+            // 根据用户名筛选
+            if (username != null && !username.trim().isEmpty()) {
+                if (dto.getUsername() == null || !dto.getUsername().contains(username)) {
+                    continue;
+                }
+            }
+            
+            // 根据拉黑类型筛选
+            if (blacklistType != null && !blacklistType.trim().isEmpty()) {
+                if (!blacklistType.equals(dto.getBlacklistType())) {
+                    continue;
+                }
             }
             
             result.add(dto);

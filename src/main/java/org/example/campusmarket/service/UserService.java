@@ -246,6 +246,7 @@ public class UserService {
             merchantInfo.setBusinessLicense(applicationDTO.getBusinessLicense());
             merchantInfo.setIdCardPhoto(applicationDTO.getIdCardPhoto());
             merchantInfo.setLevelId(5); // 默认5级
+            merchantInfo.setShopStatus("active"); // 默认店铺状态为正常
             merchantInfo.setCreateTime(new Date());
             merchantInfo.setUpdateTime(new Date());
             merchantInfoMapper.insert(merchantInfo);

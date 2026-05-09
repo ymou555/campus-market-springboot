@@ -16,7 +16,8 @@ public class MerchantInfo {
     private String businessLicense;
     private String idCardPhoto;
     private Integer levelId;
-    private String shopName; // 店铺名称
+    private String shopName;
+    private String shopStatus; // active, banned, closed
     private Date createTime;
     private Date updateTime;
 }

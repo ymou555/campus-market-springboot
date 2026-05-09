@@ -38,6 +38,8 @@ CREATE TABLE merchant_info (
 );
 -- 1. 添加店铺名称
 ALTER TABLE merchant_info ADD shop_name NVARCHAR(100) NULL;
+ALTER TABLE merchant_info ADD shop_status NVARCHAR(20) DEFAULT 'active';
+-- 取值：'active'（正常）/ 'banned'（限时封禁）/ 'closed'（已关闭）
 
 -- 创建商家等级配置表
 CREATE TABLE merchant_level (
@@ -243,7 +245,7 @@ CREATE TABLE merchant_ban_record (
     ban_reason NVARCHAR(200) NOT NULL,
     ban_start_time DATETIME DEFAULT GETDATE(),
     ban_end_time DATETIME NOT NULL,
-    status NVARCHAR(20) DEFAULT 'active',
+    status NVARCHAR(20) DEFAULT 'active',  -- active, cancelled, expired
     FOREIGN KEY (merchant_id) REFERENCES sys_user(id)
 );
 
