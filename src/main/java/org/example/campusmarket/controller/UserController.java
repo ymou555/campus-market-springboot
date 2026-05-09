@@ -1,5 +1,6 @@
 package org.example.campusmarket.controller;
 
+import org.example.campusmarket.dto.MerchantApplicationDTO;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,5 +40,22 @@ public class UserController {
         result.put("code", 200);
         result.put("message", "更新成功");
         return result;
+    }
+    
+    // 普通用户申请成为商家
+    @PostMapping("/apply-merchant")
+    public Map<String, Object> applyForMerchant(@RequestBody MerchantApplicationDTO applicationDTO) {
+        try {
+            userService.applyForMerchant(applicationDTO);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("message", "申请已提交，请等待审核");
+            return result;
+        } catch (RuntimeException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", e.getMessage());
+            return result;
+        }
     }
 }

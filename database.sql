@@ -9,7 +9,7 @@ CREATE TABLE sys_user (
     city NVARCHAR(50),
     gender NVARCHAR(10),
     bank_account NVARCHAR(100),
-    role NVARCHAR(20) NOT NULL, -- user, merchant, admin
+    role NVARCHAR(20) NOT NULL, -- user, merchant, both, admin
     status NVARCHAR(20) NOT NULL, -- pending, active, blocked
     create_time DATETIME DEFAULT GETDATE(),
     update_time DATETIME DEFAULT GETDATE()

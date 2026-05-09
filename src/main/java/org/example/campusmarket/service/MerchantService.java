@@ -152,9 +152,9 @@ public class MerchantService {
 
     // 动态调整所有商家等级
     public void adjustMerchantLevels() {
-        // 获取所有商家
+        // 获取所有商家（包括纯商家和既是买家又是商家的用户）
         LambdaQueryWrapper<SysUser> userWrapper = new LambdaQueryWrapper<>();
-        userWrapper.eq(SysUser::getRole, "merchant");
+        userWrapper.in(SysUser::getRole, "merchant", "both");
         userWrapper.eq(SysUser::getStatus, "active");
         List<SysUser> merchants = sysUserMapper.selectList(userWrapper);
         

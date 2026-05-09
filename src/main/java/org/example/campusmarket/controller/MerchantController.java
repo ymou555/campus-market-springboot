@@ -5,6 +5,7 @@ import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.UserBlacklist;
 import org.example.campusmarket.service.BlacklistService;
 import org.example.campusmarket.service.MerchantService;
+import org.example.campusmarket.service.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,6 +21,8 @@ public class MerchantController {
     private MerchantService merchantService;
     @Autowired
     private BlacklistService blacklistService;
+    @Autowired
+    private UserService userService;
 
     // 获取商家信息
     @GetMapping("/info")
@@ -179,5 +182,22 @@ public class MerchantController {
         result.put("message", "查询成功");
         result.put("isBlacklisted", isBlacklisted);
         return result;
+    }
+    
+    // 商家开通买家功能
+    @PostMapping("/enable-buyer")
+    public Map<String, Object> enableBuyerFunction(@RequestParam Integer userId) {
+        try {
+            userService.enableBuyerFunction(userId);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("message", "开通买家功能成功");
+            return result;
+        } catch (RuntimeException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", e.getMessage());
+            return result;
+        }
     }
 }
