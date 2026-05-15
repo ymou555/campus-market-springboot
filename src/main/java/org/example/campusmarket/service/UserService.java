@@ -4,13 +4,20 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.dto.MerchantApplicationDTO;
+import org.example.campusmarket.dto.UserProfileDTO;
 import org.example.campusmarket.dto.UserWithBlacklistDTO;
 import org.example.campusmarket.entity.MerchantInfo;
+import org.example.campusmarket.entity.OrderInfo;
+import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.entity.UserAudit;
+import org.example.campusmarket.entity.Wallet;
 import org.example.campusmarket.mapper.MerchantInfoMapper;
+import org.example.campusmarket.mapper.OrderInfoMapper;
+import org.example.campusmarket.mapper.ReviewMapper;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.mapper.UserAuditMapper;
+import org.example.campusmarket.mapper.WalletMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +37,14 @@ public class UserService {
     private MerchantInfoMapper merchantInfoMapper;
     @Autowired
     private BlacklistService blacklistService;
+    @Autowired
+    private WalletMapper walletMapper;
+    @Autowired
+    private OrderInfoMapper orderInfoMapper;
+    @Autowired
+    private ReviewMapper reviewMapper;
+    @Autowired
+    private PointsService pointsService;
 
     // 获取用户信息
     public SysUser getUserById(Integer id) {
@@ -40,6 +55,40 @@ public class UserService {
     @Transactional
     public void updateUser(SysUser user) {
         sysUserMapper.updateById(user);
+    }
+    
+    // 更新用户个人信息（只更新允许修改的字段）
+    @Transactional
+    public void updateUserProfile(Integer id, String username, String phone, String email, String city, String gender, String bankAccount) {
+        SysUser user = sysUserMapper.selectById(id);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        
+        LambdaUpdateWrapper<SysUser> wrapper = new LambdaUpdateWrapper<>();
+        wrapper.eq(SysUser::getId, id);
+        
+        if (username != null && !username.trim().isEmpty()) {
+            wrapper.set(SysUser::getUsername, username);
+        }
+        if (phone != null && !phone.trim().isEmpty()) {
+            wrapper.set(SysUser::getPhone, phone);
+        }
+        if (email != null && !email.trim().isEmpty()) {
+            wrapper.set(SysUser::getEmail, email);
+        }
+        if (city != null && !city.trim().isEmpty()) {
+            wrapper.set(SysUser::getCity, city);
+        }
+        if (gender != null && !gender.trim().isEmpty()) {
+            wrapper.set(SysUser::getGender, gender);
+        }
+        if (bankAccount != null && !bankAccount.trim().isEmpty()) {
+            wrapper.set(SysUser::getBankAccount, bankAccount);
+        }
+        
+        wrapper.set(SysUser::getUpdateTime, new Date());
+        sysUserMapper.update(null, wrapper);
     }
 
     // 分页查询用户列表
@@ -281,5 +330,50 @@ public class UserService {
         userWrapper.eq(SysUser::getId, userId);
         userWrapper.set(SysUser::getRole, "both");
         sysUserMapper.update(null, userWrapper);
+    }
+    
+    // 获取用户详细信息（包含钱包余额、积分、订单数量、评价数量）
+    public UserProfileDTO getUserProfile(Integer userId) {
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user == null) {
+            return null;
+        }
+        
+        UserProfileDTO profile = new UserProfileDTO();
+        profile.setId(user.getId());
+        profile.setUsername(user.getUsername());
+        profile.setName(user.getName());
+        profile.setPhone(user.getPhone());
+        profile.setEmail(user.getEmail());
+        profile.setCity(user.getCity());
+        profile.setGender(user.getGender());
+        profile.setBankAccount(user.getBankAccount());
+        profile.setRole(user.getRole());
+        profile.setStatus(user.getStatus());
+        profile.setCreateTime(user.getCreateTime());
+        
+        // 获取钱包余额
+        LambdaQueryWrapper<Wallet> walletWrapper = new LambdaQueryWrapper<>();
+        walletWrapper.eq(Wallet::getUserId, userId);
+        Wallet wallet = walletMapper.selectOne(walletWrapper);
+        profile.setBalance(wallet != null ? wallet.getBalance() : 0.0);
+        
+        // 获取积分
+        Integer points = pointsService.getTotalPoints(userId);
+        profile.setPoints(points != null ? points : 0);
+        
+        // 获取订单数量
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getUserId, userId);
+        Long orderCount = orderInfoMapper.selectCount(orderWrapper);
+        profile.setOrderCount(orderCount != null ? orderCount.intValue() : 0);
+        
+        // 获取评价数量
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getUserId, userId);
+        Long reviewCount = reviewMapper.selectCount(reviewWrapper);
+        profile.setReviewCount(reviewCount != null ? reviewCount.intValue() : 0);
+        
+        return profile;
     }
 }

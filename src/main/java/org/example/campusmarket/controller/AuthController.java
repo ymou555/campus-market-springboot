@@ -6,6 +6,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -74,5 +75,25 @@ public class AuthController {
         result.put("code", 200);
         result.put("message", "退出成功");
         return result;
+    }
+    
+    // 修改密码
+    @PostMapping("/change-password")
+    public Map<String, Object> changePassword(
+            @RequestParam Integer userId,
+            @RequestParam String oldPassword,
+            @RequestParam String newPassword) {
+        try {
+            authService.changePassword(userId, oldPassword, newPassword);
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("message", "密码修改成功，请重新登录");
+            return result;
+        } catch (RuntimeException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", e.getMessage());
+            return result;
+        }
     }
 }

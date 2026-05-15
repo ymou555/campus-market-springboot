@@ -100,4 +100,29 @@ public class AuthService {
             throw new RuntimeException("无效的Token");
         }
     }
+    
+    // 修改密码
+    @Transactional
+    public void changePassword(Integer userId, String oldPassword, String newPassword) {
+        // 查找用户
+        SysUser user = sysUserMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
+        
+        // 验证旧密码
+        if (!oldPassword.equals(user.getPassword())) {
+            throw new RuntimeException("旧密码错误");
+        }
+        
+        // 验证新密码不能与旧密码相同
+        if (oldPassword.equals(newPassword)) {
+            throw new RuntimeException("新密码不能与旧密码相同");
+        }
+        
+        // 更新密码（明文存储，方便测试）
+        user.setPassword(newPassword);
+        user.setUpdateTime(new Date());
+        sysUserMapper.updateById(user);
+    }
 }
