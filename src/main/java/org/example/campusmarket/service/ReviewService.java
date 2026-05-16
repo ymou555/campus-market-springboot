@@ -1,13 +1,27 @@
 package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.example.campusmarket.dto.PendingMerchantReviewDTO;
+import org.example.campusmarket.dto.PendingProductReviewDTO;
+import org.example.campusmarket.dto.UserReviewDTO;
+import org.example.campusmarket.entity.MerchantInfo;
+import org.example.campusmarket.entity.OrderInfo;
+import org.example.campusmarket.entity.OrderItem;
+import org.example.campusmarket.entity.Product;
+import org.example.campusmarket.entity.ProductImage;
 import org.example.campusmarket.entity.Review;
 import org.example.campusmarket.entity.SysUser;
+import org.example.campusmarket.mapper.MerchantInfoMapper;
+import org.example.campusmarket.mapper.OrderInfoMapper;
+import org.example.campusmarket.mapper.OrderItemMapper;
+import org.example.campusmarket.mapper.ProductImageMapper;
+import org.example.campusmarket.mapper.ProductMapper;
 import org.example.campusmarket.mapper.ReviewMapper;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
@@ -17,6 +31,16 @@ public class ReviewService {
     private ReviewMapper reviewMapper;
     @Autowired
     private SysUserMapper sysUserMapper;
+    @Autowired
+    private OrderInfoMapper orderInfoMapper;
+    @Autowired
+    private OrderItemMapper orderItemMapper;
+    @Autowired
+    private ProductMapper productMapper;
+    @Autowired
+    private MerchantInfoMapper merchantInfoMapper;
+    @Autowired
+    private ProductImageMapper productImageMapper;
 
     // 添加评价
     public void addReview(Review review) {
@@ -72,11 +96,89 @@ public class ReviewService {
     }
 
     // 获取用户的评价列表
-    public List<Review> getUserReviews(Integer userId) {
+    public List<UserReviewDTO> getUserReviews(Integer userId) {
+        List<UserReviewDTO> result = new ArrayList<>();
+        
+        // 查询用户的评价列表
         LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Review::getUserId, userId);
         wrapper.orderByDesc(Review::getCreateTime);
-        return reviewMapper.selectList(wrapper);
+        List<Review> reviews = reviewMapper.selectList(wrapper);
+        
+        // 遍历评价，组装数据
+        for (Review review : reviews) {
+            UserReviewDTO dto = new UserReviewDTO();
+            dto.setId(review.getId());
+            dto.setReviewType(review.getTargetType());
+            dto.setOrderId(review.getOrderId());
+            dto.setRating(review.getRating());
+            dto.setContent(review.getContent());
+            dto.setCreateTime(review.getCreateTime());
+            
+            // 获取订单信息
+            OrderInfo order = orderInfoMapper.selectById(review.getOrderId());
+            if (order != null) {
+                dto.setOrderNo(order.getOrderNo());
+            }
+            
+            // 根据评价类型组装不同的数据
+            if ("product".equals(review.getTargetType())) {
+                // 商品评价
+                Product product = productMapper.selectById(review.getTargetId());
+                if (product != null) {
+                    dto.setProductName(product.getProductName());
+                    dto.setPrice(product.getDiscountPrice());
+                    dto.setMerchantId(product.getMerchantId());
+                    
+                    // 获取商品第一张图片
+                    LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                    imageWrapper.eq(ProductImage::getProductId, product.getId());
+                    imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                    List<ProductImage> images = productImageMapper.selectList(imageWrapper);
+                    if (!images.isEmpty()) {
+                        dto.setProductImage(images.get(0).getImageUrl());
+                    }
+                    
+                    // 获取商家名称
+                    SysUser merchant = sysUserMapper.selectById(product.getMerchantId());
+                    if (merchant != null) {
+                        dto.setMerchant(merchant.getName());
+                    }
+                    
+                    // 获取购买数量
+                    if (order != null) {
+                        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+                        itemWrapper.eq(OrderItem::getOrderId, order.getId());
+                        itemWrapper.eq(OrderItem::getProductId, product.getId());
+                        List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+                        if (!items.isEmpty()) {
+                            dto.setQuantity(items.get(0).getQuantity());
+                        }
+                    }
+                }
+            } else if ("merchant".equals(review.getTargetType())) {
+                // 商家评价
+                SysUser merchant = sysUserMapper.selectById(review.getTargetId());
+                if (merchant != null) {
+                    dto.setMerchantId(merchant.getId());
+                    dto.setMerchantRealName(merchant.getName());
+                    
+                    // 获取商家店铺名
+                    LambdaQueryWrapper<MerchantInfo> merchantInfoWrapper = new LambdaQueryWrapper<>();
+                    merchantInfoWrapper.eq(MerchantInfo::getUserId, merchant.getId());
+                    MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantInfoWrapper);
+                    if (merchantInfo != null) {
+                        dto.setMerchantName(merchantInfo.getShopName());
+                    } else {
+                        dto.setMerchantName(merchant.getName() + "的店铺");
+                    }
+                }
+            }
+            
+            result.add(dto);
+        }
+        
+        return result;
     }
 
     // 获取商品的平均评分
@@ -114,8 +216,157 @@ public class ReviewService {
         return result != null ? Double.parseDouble(result.toString()) : 0;
     }
 
-    // 删除评价
-    public void deleteReview(Integer reviewId) {
-        reviewMapper.deleteById(reviewId);
+    // 获取用户待评价的商品列表
+    public List<PendingProductReviewDTO> getPendingProductReviews(Integer userId) {
+        List<PendingProductReviewDTO> result = new ArrayList<>();
+        
+        // 1. 查询用户已完成的订单
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getUserId, userId);
+        orderWrapper.eq(OrderInfo::getStatus, "completed");
+        orderWrapper.orderByDesc(OrderInfo::getCreateTime);
+        List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
+        
+        // 2. 遍历订单，获取未评价的商品
+        int idCounter = 1;
+        for (OrderInfo order : orders) {
+            // 获取订单商品
+            LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+            itemWrapper.eq(OrderItem::getOrderId, order.getId());
+            List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+            
+            for (OrderItem item : items) {
+                // 检查是否已评价
+                LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+                reviewWrapper.eq(Review::getOrderId, order.getId());
+                reviewWrapper.eq(Review::getTargetId, item.getProductId());
+                reviewWrapper.eq(Review::getTargetType, "product");
+                reviewWrapper.eq(Review::getUserId, userId);
+                
+                Long count = reviewMapper.selectCount(reviewWrapper);
+                
+                // 如果未评价，添加到列表
+                if (count == 0) {
+                    PendingProductReviewDTO dto = new PendingProductReviewDTO();
+                    dto.setId(idCounter++);
+                    dto.setOrderId(order.getId());
+                    dto.setOrderNo(order.getOrderNo());
+                    dto.setPrice(item.getPrice());
+                    dto.setQuantity(item.getQuantity());
+                    dto.setCreateTime(order.getCreateTime());
+                    
+                    // 获取商品信息
+                    Product product = productMapper.selectById(item.getProductId());
+                    if (product != null) {
+                        dto.setProductId(product.getId());
+                        dto.setProductName(product.getProductName());
+                        dto.setMerchantId(product.getMerchantId());
+                        
+                        // 获取商品第一张图片
+                        LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                        imageWrapper.eq(ProductImage::getProductId, product.getId());
+                        imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                        List<ProductImage> images = productImageMapper.selectList(imageWrapper);
+                        if (!images.isEmpty()) {
+                            dto.setProductImage(images.get(0).getImageUrl());
+                        }
+                        
+                        // 获取商家信息
+                        SysUser merchant = sysUserMapper.selectById(product.getMerchantId());
+                        if (merchant != null) {
+                            dto.setMerchant(merchant.getName());
+                        }
+                    }
+                    
+                    result.add(dto);
+                }
+            }
+        }
+        
+        return result;
+    }
+    
+    // 获取用户待评价的商家列表
+    public List<PendingMerchantReviewDTO> getPendingMerchantReviews(Integer userId) {
+        List<PendingMerchantReviewDTO> result = new ArrayList<>();
+        
+        // 1. 查询用户已完成的订单
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getUserId, userId);
+        orderWrapper.eq(OrderInfo::getStatus, "completed");
+        orderWrapper.orderByDesc(OrderInfo::getCreateTime);
+        List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
+        
+        // 2. 遍历订单，获取未评价的商家
+        int idCounter = 1;
+        for (OrderInfo order : orders) {
+            // 检查是否已评价该订单的商家
+            LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+            reviewWrapper.eq(Review::getOrderId, order.getId());
+            reviewWrapper.eq(Review::getTargetId, order.getMerchantId());
+            reviewWrapper.eq(Review::getTargetType, "merchant");
+            reviewWrapper.eq(Review::getUserId, userId);
+            
+            Long count = reviewMapper.selectCount(reviewWrapper);
+            
+            // 如果未评价，添加到列表
+            if (count == 0) {
+                PendingMerchantReviewDTO dto = new PendingMerchantReviewDTO();
+                dto.setId(idCounter++);
+                dto.setOrderId(order.getId());
+                dto.setOrderNo(order.getOrderNo());
+                dto.setMerchantId(order.getMerchantId());
+                dto.setCreateTime(order.getCreateTime());
+                
+                // 获取商家信息
+                SysUser merchant = sysUserMapper.selectById(order.getMerchantId());
+                if (merchant != null) {
+                    // 获取商家店铺名
+                    LambdaQueryWrapper<MerchantInfo> merchantInfoWrapper = new LambdaQueryWrapper<>();
+                    merchantInfoWrapper.eq(MerchantInfo::getUserId, order.getMerchantId());
+                    MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantInfoWrapper);
+                    
+                    if (merchantInfo != null) {
+                        dto.setMerchantName(merchantInfo.getShopName());
+                    } else {
+                        dto.setMerchantName(merchant.getName() + "的店铺");
+                    }
+                    dto.setMerchantRealName(merchant.getName());
+                }
+                
+                // 获取订单商品信息
+                LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+                itemWrapper.eq(OrderItem::getOrderId, order.getId());
+                List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+                
+                List<String> productNames = new ArrayList<>();
+                String firstProductImage = null;
+                
+                for (OrderItem item : items) {
+                    Product product = productMapper.selectById(item.getProductId());
+                    if (product != null) {
+                        productNames.add(product.getProductName());
+                        
+                        // 获取商品第一张图片
+                        if (firstProductImage == null) {
+                            LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                            imageWrapper.eq(ProductImage::getProductId, product.getId());
+                            imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                            List<ProductImage> images = productImageMapper.selectList(imageWrapper);
+                            if (!images.isEmpty()) {
+                                firstProductImage = images.get(0).getImageUrl();
+                            }
+                        }
+                    }
+                }
+                
+                dto.setProductNames(productNames);
+                dto.setProductImage(firstProductImage);
+                
+                result.add(dto);
+            }
+        }
+        
+        return result;
     }
 }

@@ -61,7 +61,7 @@ public class ReviewController {
     // 获取用户的评价列表
     @GetMapping("/user/list")
     public Map<String, Object> getUserReviews(@RequestParam Integer userId) {
-        List<Review> reviews = reviewService.getUserReviews(userId);
+        List<org.example.campusmarket.dto.UserReviewDTO> reviews = reviewService.getUserReviews(userId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
@@ -96,14 +96,26 @@ public class ReviewController {
         result.put("rating", rating);
         return result;
     }
-
-    // 删除评价
-    @DeleteMapping("/delete")
-    public Map<String, Object> deleteReview(@RequestParam Integer reviewId) {
-        reviewService.deleteReview(reviewId);
+    
+    // 获取用户待评价的商品列表
+    @GetMapping("/pending/products")
+    public Map<String, Object> getPendingProductReviews(@RequestParam Integer userId) {
+        List<org.example.campusmarket.dto.PendingProductReviewDTO> products = reviewService.getPendingProductReviews(userId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
-        result.put("message", "删除成功");
+        result.put("message", "获取成功");
+        result.put("data", products);
+        return result;
+    }
+    
+    // 获取用户待评价的商家列表
+    @GetMapping("/pending/merchants")
+    public Map<String, Object> getPendingMerchantReviews(@RequestParam Integer userId) {
+        List<org.example.campusmarket.dto.PendingMerchantReviewDTO> merchants = reviewService.getPendingMerchantReviews(userId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", merchants);
         return result;
     }
 }
