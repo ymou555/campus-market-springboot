@@ -1,8 +1,14 @@
 package org.example.campusmarket.controller;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.StatisticsVO;
+import org.example.campusmarket.dto.UserAuditDTO;
 import org.example.campusmarket.dto.UserWithBlacklistDTO;
 import org.example.campusmarket.entity.*;
+import org.example.campusmarket.mapper.OrderInfoMapper;
+import org.example.campusmarket.mapper.ProductMapper;
+import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.service.*;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -29,6 +35,12 @@ public class AdminController {
     private WalletService walletService;
     @Autowired
     private BlacklistService blacklistService;
+    @Autowired
+    private SysUserMapper sysUserMapper;
+    @Autowired
+    private ProductMapper productMapper;
+    @Autowired
+    private OrderInfoMapper orderInfoMapper;
 
     // 用户审核
     @PostMapping("/user/audit")
@@ -59,14 +71,13 @@ public class AdminController {
     // 获取待审核用户列表
     @GetMapping("/user/pending")
     public Map<String, Object> getPendingUsers(
-            @RequestParam int page,
-            @RequestParam int size) {
-        Page<SysUser> userPage = userService.getUserList(page, size, null, "pending");
+            @RequestParam(required = false) String auditStatus) {
+        List<UserAuditDTO> users = userService.getUserAuditList(auditStatus);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
-        result.put("data", userPage.getRecords());
-        result.put("total", userPage.getTotal());
+        result.put("data", users);
+        result.put("total", users.size());
         return result;
     }
     
@@ -85,15 +96,18 @@ public class AdminController {
         return result;
     }
 
-    // 获取待审核商品列表
-    @GetMapping("/product/pending")
-    public Map<String, Object> getPendingProducts(
-            @RequestParam int page,
-            @RequestParam int size) {
-        // 这里需要在ProductService中添加相应的方法
+    // 获取商品列表（支持状态筛选）
+    @GetMapping("/product/list")
+    public Map<String, Object> getProductList(
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String status) {
+        Page<Product> productPage = productService.getProductList(page, size, status);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
+        result.put("data", productPage.getRecords());
+        result.put("total", productPage.getTotal());
         return result;
     }
 
@@ -144,9 +158,20 @@ public class AdminController {
     // 获取系统数据统计
     @GetMapping("/statistics")
     public Map<String, Object> getStatistics() {
-        // 这里可以实现各种数据统计功能
-        Map<String, Object> statistics = new HashMap<>();
-        // 例如：用户数量、商家数量、商品数量、订单数量、总销售额等
+        StatisticsVO statistics = new StatisticsVO();
+        
+        Long userCount = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>().eq(SysUser::getRole, "user"));
+        statistics.setUserCount(userCount);
+        
+        Long productCount = productMapper.selectCount(new LambdaQueryWrapper<Product>().eq(Product::getStatus, "published"));
+        statistics.setProductCount(productCount);
+        
+        List<OrderInfo> orders = orderInfoMapper.selectList(new LambdaQueryWrapper<OrderInfo>().ne(OrderInfo::getStatus, "cancelled"));
+        Double totalOrderAmount = orders.stream().mapToDouble(o -> o.getActualAmount() != null ? o.getActualAmount() : 0).sum();
+        statistics.setTotalOrderAmount(totalOrderAmount);
+        
+        Long orderCount = orderInfoMapper.selectCount(new LambdaQueryWrapper<OrderInfo>().ne(OrderInfo::getStatus, "cancelled"));
+        statistics.setOrderCount(orderCount);
         
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);

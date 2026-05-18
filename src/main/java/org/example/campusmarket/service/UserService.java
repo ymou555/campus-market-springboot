@@ -3,9 +3,12 @@ package org.example.campusmarket.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.UserAuditDTO;
 import org.example.campusmarket.dto.UserWithBlacklistDTO;
+import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.entity.UserAudit;
+import org.example.campusmarket.mapper.MerchantInfoMapper;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.mapper.UserAuditMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +26,11 @@ public class UserService {
     @Autowired
     private UserAuditMapper userAuditMapper;
     @Autowired
+    private MerchantInfoMapper merchantInfoMapper;
+    @Autowired
     private BlacklistService blacklistService;
+    @Autowired
+    private WalletService walletService;
 
     // 获取用户信息
     public SysUser getUserById(Integer id) {
@@ -121,26 +128,68 @@ public class UserService {
     // 审核用户
     @Transactional
     public void auditUser(Integer userId, String auditStatus, String remark) {
-        // 审核拒绝时必须填写备注
+        if (!"approved".equals(auditStatus) && !"rejected".equals(auditStatus)) {
+            throw new RuntimeException("审核状态无效，只能是 approved 或 rejected");
+        }
+        
         if ("rejected".equals(auditStatus) && (remark == null || remark.isEmpty())) {
             throw new RuntimeException("审核拒绝时必须填写备注");
         }
-        
-        // 更新用户状态
-        LambdaUpdateWrapper<SysUser> userWrapper = new LambdaUpdateWrapper<>();
-        userWrapper.eq(SysUser::getId, userId);
-        if ("approved".equals(auditStatus)) {
-            userWrapper.set(SysUser::getStatus, "active");
-        } else if ("rejected".equals(auditStatus)) {
-            // 审核拒绝时用户状态保持不变
-        }
-        sysUserMapper.update(null, userWrapper);
 
-        // 更新审核记录
+        if ("approved".equals(auditStatus)) {
+            LambdaUpdateWrapper<SysUser> userWrapper = new LambdaUpdateWrapper<>();
+            userWrapper.eq(SysUser::getId, userId);
+            userWrapper.set(SysUser::getStatus, "active");
+            sysUserMapper.update(null, userWrapper);
+
+            walletService.getWallet(userId);
+        }
+
         LambdaUpdateWrapper<UserAudit> auditWrapper = new LambdaUpdateWrapper<>();
         auditWrapper.eq(UserAudit::getUserId, userId);
         auditWrapper.set(UserAudit::getAuditStatus, auditStatus);
         auditWrapper.set(UserAudit::getAuditRemark, remark);
         userAuditMapper.update(null, auditWrapper);
+    }
+
+    public List<UserAuditDTO> getUserAuditList(String auditStatus) {
+        List<UserAuditDTO> result = new ArrayList<>();
+
+        LambdaQueryWrapper<UserAudit> auditWrapper = new LambdaQueryWrapper<>();
+        if (auditStatus != null && !auditStatus.isEmpty()) {
+            auditWrapper.eq(UserAudit::getAuditStatus, auditStatus);
+        }
+        List<UserAudit> auditList = userAuditMapper.selectList(auditWrapper);
+
+        for (UserAudit audit : auditList) {
+            SysUser user = sysUserMapper.selectById(audit.getUserId());
+            if (user == null) continue;
+
+            UserAuditDTO dto = new UserAuditDTO();
+            dto.setId(user.getId());
+            dto.setUsername(user.getUsername());
+            dto.setName(user.getName());
+            dto.setPhone(user.getPhone());
+            dto.setType(user.getRole());
+            dto.setRegisterTime(user.getCreateTime());
+            dto.setAuditStatus(audit.getAuditStatus());
+            dto.setAuditTime(audit.getAuditTime());
+            dto.setAuditRemark(audit.getAuditRemark());
+
+            if ("merchant".equals(user.getRole())) {
+                LambdaQueryWrapper<MerchantInfo> merchantWrapper = new LambdaQueryWrapper<>();
+                merchantWrapper.eq(MerchantInfo::getUserId, user.getId());
+                MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantWrapper);
+                if (merchantInfo != null) {
+                    dto.setShopName(merchantInfo.getShopName());
+                    dto.setBusinessLicense(merchantInfo.getBusinessLicense());
+                    dto.setIdCardPhoto(merchantInfo.getIdCardPhoto());
+                }
+            }
+
+            result.add(dto);
+        }
+
+        return result;
     }
 }

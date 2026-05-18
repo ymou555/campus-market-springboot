@@ -3,6 +3,7 @@ package org.example.campusmarket.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.ProductWithAuditDTO;
 import org.example.campusmarket.entity.Product;
 import org.example.campusmarket.entity.ProductAudit;
 import org.example.campusmarket.entity.ProductImage;
@@ -26,6 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -111,6 +113,29 @@ public class ProductService {
 
     // 商品上下架
     public void toggleProductStatus(Integer productId, String status) {
+        Product product = productMapper.selectById(productId);
+        if (product == null) {
+            throw new RuntimeException("商品不存在");
+        }
+
+        String currentStatus = product.getStatus();
+        
+        if ("published".equals(status)) {
+            if ("pending".equals(currentStatus)) {
+                throw new RuntimeException("待审核商品不能直接上架");
+            }
+            
+            if ("offline".equals(currentStatus)) {
+                LambdaQueryWrapper<ProductAudit> auditWrapper = new LambdaQueryWrapper<>();
+                auditWrapper.eq(ProductAudit::getProductId, productId);
+                ProductAudit audit = productAuditMapper.selectOne(auditWrapper);
+                
+                if (audit != null && "rejected".equals(audit.getAuditStatus())) {
+                    throw new RuntimeException("审核未通过的商品不能上架");
+                }
+            }
+        }
+
         LambdaUpdateWrapper<Product> wrapper = new LambdaUpdateWrapper<>();
         wrapper.eq(Product::getId, productId);
         wrapper.set(Product::getStatus, status);
@@ -237,11 +262,18 @@ public class ProductService {
     }
 
     // 获取商家商品列表
-    public List<Product> getMerchantProducts(Integer merchantId, String status) {
+    public List<ProductWithAuditDTO> getMerchantProducts(Integer merchantId, String status) {
+        String actualStatus = status;
+        if ("approved".equals(status)) {
+            actualStatus = "published";
+        } else if ("rejected".equals(status)) {
+            actualStatus = "offline";
+        }
+        
         LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Product::getMerchantId, merchantId);
-        if (status != null) {
-            wrapper.eq(Product::getStatus, status);
+        if (actualStatus != null) {
+            wrapper.eq(Product::getStatus, actualStatus);
         }
         wrapper.orderByDesc(Product::getCreateTime);
         List<Product> products = productMapper.selectList(wrapper);
@@ -250,7 +282,42 @@ public class ProductService {
         setMerchantName(products);
         setFirstImage(products);
         
-        return products;
+        // 转换为包含审核状态的DTO
+        List<ProductWithAuditDTO> result = new ArrayList<>();
+        for (Product product : products) {
+            ProductWithAuditDTO dto = new ProductWithAuditDTO();
+            dto.setId(product.getId());
+            dto.setMerchantId(product.getMerchantId());
+            dto.setCategoryId(product.getCategoryId());
+            dto.setProductName(product.getProductName());
+            dto.setOriginalPrice(product.getOriginalPrice());
+            dto.setDiscountPrice(product.getDiscountPrice());
+            dto.setSize(product.getSize());
+            dto.setDescription(product.getDescription());
+            dto.setIsNegotiable(product.getIsNegotiable());
+            dto.setStock(product.getStock());
+            dto.setStatus(product.getStatus());
+            dto.setNewness(product.getNewness());
+            dto.setSalesCount(product.getSalesCount());
+            dto.setCreateTime(product.getCreateTime());
+            dto.setUpdateTime(product.getUpdateTime());
+            dto.setMerchantName(product.getMerchantName());
+            dto.setFirstImage(product.getFirstImage());
+            
+            // 获取审核状态
+            LambdaQueryWrapper<ProductAudit> auditWrapper = new LambdaQueryWrapper<>();
+            auditWrapper.eq(ProductAudit::getProductId, product.getId());
+            ProductAudit audit = productAuditMapper.selectOne(auditWrapper);
+            if (audit != null) {
+                dto.setAuditStatus(audit.getAuditStatus());
+                dto.setAuditTime(audit.getAuditTime());
+                dto.setAuditRemark(audit.getAuditRemark());
+            }
+            
+            result.add(dto);
+        }
+        
+        return result;
     }
 
     // 获取商家店铺信息
@@ -305,8 +372,57 @@ public class ProductService {
 
     // 更新商品信息
     public void updateProduct(Product product) {
+        if (product.getId() == null) {
+            throw new RuntimeException("商品ID不能为空");
+        }
         product.setUpdateTime(new Date());
         productMapper.updateById(product);
+    }
+
+    // 更新商品信息（包含图片）
+    @Transactional
+    public void updateProductWithImages(Product product, List<String> imageUrls) {
+        if (product.getId() == null) {
+            throw new RuntimeException("商品ID不能为空");
+        }
+        
+        Product existingProduct = productMapper.selectById(product.getId());
+        String originalStatus = existingProduct.getStatus();
+        
+        product.setUpdateTime(new Date());
+        productMapper.updateById(product);
+
+        if (imageUrls != null && !imageUrls.isEmpty()) {
+            LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+            imageWrapper.eq(ProductImage::getProductId, product.getId());
+            productImageMapper.delete(imageWrapper);
+
+            for (int i = 0; i < imageUrls.size(); i++) {
+                ProductImage image = new ProductImage();
+                image.setProductId(product.getId());
+                image.setImageUrl(imageUrls.get(i));
+                image.setSortOrder(i);
+                productImageMapper.insert(image);
+            }
+        }
+
+        if ("offline".equals(originalStatus)) {
+            LambdaQueryWrapper<ProductAudit> auditWrapper = new LambdaQueryWrapper<>();
+            auditWrapper.eq(ProductAudit::getProductId, product.getId());
+            ProductAudit audit = productAuditMapper.selectOne(auditWrapper);
+            
+            if (audit != null && "rejected".equals(audit.getAuditStatus())) {
+                audit.setAuditStatus("pending");
+                audit.setAuditRemark(null);
+                audit.setAuditTime(new Date());
+                productAuditMapper.updateById(audit);
+                
+                LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+                productWrapper.eq(Product::getId, product.getId());
+                productWrapper.set(Product::getStatus, "pending");
+                productMapper.update(null, productWrapper);
+            }
+        }
     }
 
     // 删除商品
@@ -348,6 +464,41 @@ public class ProductService {
                     return tree;
                 })
                 .collect(java.util.stream.Collectors.toList());
+    }
+    
+    public Page<Product> getProductList(int page, int size, String status) {
+        String actualStatus = status;
+        if ("approved".equals(status)) {
+            actualStatus = "published";
+        } else if ("rejected".equals(status)) {
+            actualStatus = "offline";
+        }
+        
+        LambdaQueryWrapper<Product> countWrapper = new LambdaQueryWrapper<>();
+        if (actualStatus != null && !actualStatus.isEmpty()) {
+            countWrapper.eq(Product::getStatus, actualStatus);
+        }
+        Long total = productMapper.selectCount(countWrapper);
+        
+        LambdaQueryWrapper<Product> wrapper = new LambdaQueryWrapper<>();
+        if (actualStatus != null && !actualStatus.isEmpty()) {
+            wrapper.eq(Product::getStatus, actualStatus);
+        }
+        wrapper.orderByDesc(Product::getCreateTime);
+        
+        int offset = (page - 1) * size;
+        wrapper.last("OFFSET " + offset + " ROWS FETCH NEXT " + size + " ROWS ONLY");
+        
+        List<Product> products = productMapper.selectList(wrapper);
+        
+        setMerchantName(products);
+        setFirstImage(products);
+        
+        Page<Product> result = new Page<>(page, size);
+        result.setRecords(products);
+        result.setTotal(total);
+        
+        return result;
     }
     
     // 批量下架商家所有商品（惩罚功能）
