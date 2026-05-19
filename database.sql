@@ -299,3 +299,17 @@ CREATE TABLE order_return_request (
 -- （若需要允许多次退货可去掉唯一约束，这里按常规一次退货设计）
 CREATE UNIQUE INDEX idx_return_request_order_id ON order_return_request(order_id) 
 WHERE status IN ('pending', 'approved');  -- 仅当有待审或已通过未完成时唯一
+
+-- 商品收藏表
+CREATE TABLE product_favorite (
+    id INT PRIMARY KEY IDENTITY(1,1),
+    user_id INT NOT NULL,
+    product_id INT NOT NULL,
+    create_time DATETIME DEFAULT GETDATE(),
+    
+    FOREIGN KEY (user_id) REFERENCES sys_user(id),
+    FOREIGN KEY (product_id) REFERENCES product(id),
+    
+    -- 防重唯一约束
+    CONSTRAINT uq_user_product_favorite UNIQUE (user_id, product_id)
+);
