@@ -443,7 +443,8 @@ public class MerchantService {
                 LambdaQueryWrapper<UserAudit> auditWrapper = new LambdaQueryWrapper<>();
                 auditWrapper.eq(UserAudit::getUserId, merchant.getId());
                 auditWrapper.orderByDesc(UserAudit::getAuditTime);
-                UserAudit latestAudit = userAuditMapper.selectOne(auditWrapper);
+                List<UserAudit> auditList = userAuditMapper.selectList(auditWrapper);
+                UserAudit latestAudit = auditList.isEmpty() ? null : auditList.get(0);
                 
                 // 根据审核状态设置商家状态
                 if (latestAudit == null) {
@@ -564,7 +565,8 @@ public class MerchantService {
             LambdaQueryWrapper<UserAudit> auditWrapper = new LambdaQueryWrapper<>();
             auditWrapper.eq(UserAudit::getUserId, merchantId);
             auditWrapper.orderByDesc(UserAudit::getAuditTime);
-            UserAudit latestAudit = userAuditMapper.selectOne(auditWrapper);
+            List<UserAudit> auditList = userAuditMapper.selectList(auditWrapper);
+            UserAudit latestAudit = auditList.isEmpty() ? null : auditList.get(0);
             
             // 根据审核状态设置店铺状态
             if (latestAudit == null) {

@@ -163,18 +163,20 @@ public class AdminController {
     public Map<String, Object> getStatistics() {
         StatisticsVO statistics = new StatisticsVO();
         
-        Long userCount = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>().eq(SysUser::getRole, "user"));
+        Long userCount = sysUserMapper.selectCount(new LambdaQueryWrapper<SysUser>().ne(SysUser::getRole, "admin"));
         statistics.setUserCount(userCount);
         
         Long productCount = productMapper.selectCount(new LambdaQueryWrapper<Product>().eq(Product::getStatus, "published"));
         statistics.setProductCount(productCount);
         
-        List<OrderInfo> orders = orderInfoMapper.selectList(new LambdaQueryWrapper<OrderInfo>().in(OrderInfo::getStatus, "received"));
+        Long orderCount = orderInfoMapper.selectCount(new LambdaQueryWrapper<OrderInfo>());
+        statistics.setOrderCount(orderCount);
+        
+        List<OrderInfo> orders = orderInfoMapper.selectList(new LambdaQueryWrapper<OrderInfo>()
+                .notIn(OrderInfo::getStatus, "cancelled", "pending", "refunded", "bargaining")
+                .isNotNull(OrderInfo::getActualAmount));
         Double totalOrderAmount = orders.stream().mapToDouble(o -> o.getActualAmount() != null ? o.getActualAmount() : 0).sum();
         statistics.setTotalOrderAmount(totalOrderAmount);
-        
-        Long orderCount = orderInfoMapper.selectCount(new LambdaQueryWrapper<OrderInfo>().ne(OrderInfo::getStatus, "cancelled"));
-        statistics.setOrderCount(orderCount);
         
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);

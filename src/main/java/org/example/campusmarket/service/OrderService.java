@@ -58,6 +58,8 @@ public class OrderService {
     private ReviewMapper reviewMapper;
     @Autowired
     private BlacklistService blacklistService;
+    @Autowired
+    private TransactionRecordMapper transactionRecordMapper;
 
     // 创建订单
     @Transactional
@@ -101,6 +103,12 @@ public class OrderService {
             actualAmount = totalAmount;
             orderStatus = "bargaining";
         } else {
+            // 积分最多抵扣订单金额的50%
+            int maxPointsDeductible = (int) (totalAmount * 50);
+            if (pointsDeducted > maxPointsDeductible) {
+                throw new RuntimeException("积分最多抵扣订单金额的50%，当前订单最多可抵扣 " + maxPointsDeductible + " 积分");
+            }
+            
             actualAmount = totalAmount - (pointsDeducted / 100.0);
             if (actualAmount < 0) actualAmount = 0;
             orderStatus = "pending";
@@ -180,6 +188,12 @@ public class OrderService {
             actualAmount = totalAmount;
             orderStatus = "bargaining";
         } else {
+            // 积分最多抵扣订单金额的50%
+            int maxPointsDeductible = (int) (totalAmount * 50);
+            if (pointsDeducted > maxPointsDeductible) {
+                throw new RuntimeException("积分最多抵扣订单金额的50%，当前订单最多可抵扣 " + maxPointsDeductible + " 积分");
+            }
+            
             actualAmount = totalAmount - (pointsDeducted / 100.0);
             if (actualAmount < 0) actualAmount = 0;
             orderStatus = "pending";
@@ -1600,14 +1614,27 @@ public class OrderService {
         Date todayStart = getTodayStart();
         Date todayEnd = getTodayEnd();
         
-        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(OrderInfo::getMerchantId, merchantId);
-        wrapper.ge(OrderInfo::getCreateTime, todayStart);
-        wrapper.le(OrderInfo::getCreateTime, todayEnd);
-        wrapper.ne(OrderInfo::getStatus, "cancelled");
+        LambdaQueryWrapper<TransactionRecord> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(TransactionRecord::getUserId, merchantId);
+        wrapper.eq(TransactionRecord::getStatus, "success");
+        wrapper.ge(TransactionRecord::getTransactionTime, todayStart);
+        wrapper.le(TransactionRecord::getTransactionTime, todayEnd);
         
-        List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
-        return orders.stream().mapToDouble(OrderInfo::getActualAmount).sum();
+        List<TransactionRecord> records = transactionRecordMapper.selectList(wrapper);
+        
+        double totalAmount = 0;
+        for (TransactionRecord record : records) {
+            String type = record.getType();
+            double amount = record.getAmount();
+            
+            if ("deposit".equals(type) || "refund".equals(type)) {
+                totalAmount += amount;
+            } else if ("payment".equals(type) || "withdraw".equals(type)) {
+                totalAmount -= amount;
+            }
+        }
+        
+        return Math.round(totalAmount * 100.0) / 100.0;
     }
 
     // 获取商家待处理订单数
@@ -1636,5 +1663,171 @@ public class OrderService {
         cal.set(java.util.Calendar.SECOND, 59);
         cal.set(java.util.Calendar.MILLISECOND, 999);
         return cal.getTime();
+    }
+
+    // 批量创建订单（按商家分组，每个商家创建一个订单，每个订单可独立配置配送信息）
+    @Transactional
+    public List<OrderInfo> createOrdersByMerchant(Integer userId, List<Cart> cartItems, Map<Integer, Map<String, Object>> configsMap, Double buyerOfferPrice) {
+        if (cartItems == null || cartItems.isEmpty()) {
+            throw new RuntimeException("购物车商品不能为空");
+        }
+
+        Map<Integer, List<Cart>> cartByMerchant = new java.util.HashMap<>();
+        for (Cart cart : cartItems) {
+            Product product = productMapper.selectById(cart.getProductId());
+            if (product == null) {
+                throw new RuntimeException("商品不存在：商品ID " + cart.getProductId());
+            }
+            Integer merchantId = product.getMerchantId();
+            if (!cartByMerchant.containsKey(merchantId)) {
+                cartByMerchant.put(merchantId, new ArrayList<>());
+            }
+            cartByMerchant.get(merchantId).add(cart);
+        }
+
+        if (cartByMerchant.size() > 1 && buyerOfferPrice != null && buyerOfferPrice > 0) {
+            throw new RuntimeException("议价订单只能购买单个商家的商品");
+        }
+
+        List<OrderInfo> orders = new ArrayList<>();
+
+        for (Map.Entry<Integer, List<Cart>> entry : cartByMerchant.entrySet()) {
+            Integer merchantId = entry.getKey();
+            List<Cart> merchantCartItems = entry.getValue();
+
+            if (!blacklistService.canUserBuyFromMerchant(userId, merchantId)) {
+                throw new RuntimeException("您已被商家或平台拉黑，无法购买该商家的商品");
+            }
+
+            int currentPoints = 0;
+            OrderDelivery delivery = null;
+            
+            if (configsMap != null && configsMap.containsKey(merchantId)) {
+                Map<String, Object> config = configsMap.get(merchantId);
+                
+                if (config.containsKey("pointsDeducted") && config.get("pointsDeducted") != null) {
+                    currentPoints = Integer.parseInt(config.get("pointsDeducted").toString());
+                }
+                
+                if (config.containsKey("deliveryType")) {
+                    delivery = new OrderDelivery();
+                    delivery.setDeliveryType(config.get("deliveryType").toString());
+                    
+                    if ("express".equals(delivery.getDeliveryType())) {
+                        if (config.containsKey("receiverName")) {
+                            delivery.setReceiverName(config.get("receiverName").toString());
+                        }
+                        if (config.containsKey("receiverPhone")) {
+                            delivery.setReceiverPhone(config.get("receiverPhone").toString());
+                        }
+                        if (config.containsKey("receiverAddress")) {
+                            delivery.setReceiverAddress(config.get("receiverAddress").toString());
+                        }
+                    }
+                    
+                    if (config.containsKey("remark")) {
+                        delivery.setRemark(config.get("remark").toString());
+                    }
+                }
+            }
+
+            OrderInfo order = createSingleMerchantOrder(userId, merchantCartItems, currentPoints, buyerOfferPrice, delivery);
+            orders.add(order);
+        }
+
+        return orders;
+    }
+
+    // 创建单个商家的订单
+    @Transactional
+    public OrderInfo createSingleMerchantOrder(Integer userId, List<Cart> cartItems, Integer pointsDeducted, Double buyerOfferPrice, OrderDelivery delivery) {
+        String orderNo = "ORD" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8);
+
+        double totalAmount = 0;
+        Integer merchantId = null;
+        for (Cart cart : cartItems) {
+            Product product = productMapper.selectById(cart.getProductId());
+            totalAmount += product.getDiscountPrice() * cart.getQuantity();
+            if (merchantId == null) {
+                merchantId = product.getMerchantId();
+            }
+        }
+
+        boolean isBargaining = buyerOfferPrice != null && buyerOfferPrice > 0;
+
+        double actualAmount;
+        String orderStatus;
+
+        if (isBargaining) {
+            actualAmount = totalAmount;
+            orderStatus = "bargaining";
+        } else {
+            // 积分最多抵扣订单金额的50%
+            int maxPointsDeductible = (int) (totalAmount * 50);
+            if (pointsDeducted > maxPointsDeductible) {
+                throw new RuntimeException("积分最多抵扣订单金额的50%，当前订单最多可抵扣 " + maxPointsDeductible + " 积分");
+            }
+            
+            actualAmount = totalAmount - (pointsDeducted / 100.0);
+            if (actualAmount < 0) actualAmount = 0;
+            orderStatus = "pending";
+        }
+
+        OrderInfo order = new OrderInfo();
+        order.setOrderNo(orderNo);
+        order.setUserId(userId);
+        order.setMerchantId(merchantId);
+        order.setTotalAmount(totalAmount);
+        order.setActualAmount(actualAmount);
+        order.setPointsDeducted(isBargaining ? 0 : pointsDeducted);
+        order.setBuyerOfferPrice(buyerOfferPrice);
+        order.setStatus(orderStatus);
+        order.setCreateTime(new Date());
+        order.setUpdateTime(new Date());
+        orderInfoMapper.insert(order);
+
+        for (Cart cart : cartItems) {
+            Product product = productMapper.selectById(cart.getProductId());
+            OrderItem item = new OrderItem();
+            item.setOrderId(order.getId());
+            item.setProductId(cart.getProductId());
+            item.setQuantity(cart.getQuantity());
+            item.setPrice(product.getDiscountPrice());
+            orderItemMapper.insert(item);
+
+            if (!isBargaining) {
+                LambdaUpdateWrapper<Product> productWrapper = new LambdaUpdateWrapper<>();
+                productWrapper.eq(Product::getId, cart.getProductId());
+                productWrapper.set(Product::getStock, product.getStock() - cart.getQuantity());
+                if (product.getStock() - cart.getQuantity() <= 0) {
+                    productWrapper.set(Product::getStatus, "sold_out");
+                }
+                productMapper.update(null, productWrapper);
+            }
+        }
+
+        for (Cart cart : cartItems) {
+            cartMapper.deleteById(cart.getId());
+        }
+
+        if (delivery != null) {
+            OrderDelivery newDelivery = new OrderDelivery();
+            newDelivery.setOrderId(order.getId());
+            newDelivery.setDeliveryType(delivery.getDeliveryType());
+            newDelivery.setReceiverName(delivery.getReceiverName());
+            newDelivery.setReceiverPhone(delivery.getReceiverPhone());
+            newDelivery.setReceiverAddress(delivery.getReceiverAddress());
+            newDelivery.setRemark(delivery.getRemark());
+            newDelivery.setCreateTime(new Date());
+            newDelivery.setUpdateTime(new Date());
+            if ("face_to_face".equals(delivery.getDeliveryType())) {
+                newDelivery.setMeetStatus("pending_seller");
+            }
+            orderDeliveryMapper.insert(newDelivery);
+        }
+
+        recordOrderStatusChange(order.getId(), null, orderStatus, "系统");
+
+        return order;
     }
 }

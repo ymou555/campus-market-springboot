@@ -97,6 +97,21 @@ public class ReviewController {
         return result;
     }
     
+    // 获取买家（用户）的平均评分（商家对买家的评价）
+    @GetMapping("/buyer/rating")
+    public Map<String, Object> getBuyerAverageRating(@RequestParam Integer buyerId) {
+        double rating = reviewService.getBuyerAverageRating(buyerId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        if (rating == 0) {
+            result.put("message", "暂无评分");
+        } else {
+            result.put("message", "获取成功");
+        }
+        result.put("rating", rating);
+        return result;
+    }
+    
     // 获取用户待评价的商品列表
     @GetMapping("/pending/products")
     public Map<String, Object> getPendingProductReviews(@RequestParam Integer userId) {
@@ -116,6 +131,28 @@ public class ReviewController {
         result.put("code", 200);
         result.put("message", "获取成功");
         result.put("data", merchants);
+        return result;
+    }
+    
+    // 获取商家待评价的买家列表
+    @GetMapping("/pending/buyers")
+    public Map<String, Object> getPendingBuyerReviews(@RequestParam Integer merchantId) {
+        List<org.example.campusmarket.dto.PendingBuyerReviewDTO> buyers = reviewService.getPendingBuyerReviews(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", buyers);
+        return result;
+    }
+    
+    // 获取商家已评价的买家列表
+    @GetMapping("/reviewed/buyers")
+    public Map<String, Object> getReviewedBuyers(@RequestParam Integer merchantId) {
+        List<org.example.campusmarket.dto.ReviewedBuyerDTO> buyers = reviewService.getReviewedBuyers(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", buyers);
         return result;
     }
 }

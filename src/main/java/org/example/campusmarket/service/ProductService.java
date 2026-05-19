@@ -125,6 +125,13 @@ public class ProductService {
                 throw new RuntimeException("待审核商品不能直接上架");
             }
             
+            LambdaQueryWrapper<MerchantInfo> merchantWrapper = new LambdaQueryWrapper<>();
+            merchantWrapper.eq(MerchantInfo::getUserId, product.getMerchantId());
+            MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantWrapper);
+            if (merchantInfo != null && "closed".equals(merchantInfo.getShopStatus())) {
+                throw new RuntimeException("店铺已关闭，无法上架商品");
+            }
+            
             if ("offline".equals(currentStatus)) {
                 LambdaQueryWrapper<ProductAudit> auditWrapper = new LambdaQueryWrapper<>();
                 auditWrapper.eq(ProductAudit::getProductId, productId);

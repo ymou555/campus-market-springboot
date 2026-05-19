@@ -3,6 +3,7 @@ package org.example.campusmarket.controller;
 import org.example.campusmarket.entity.SysUser;
 import org.example.campusmarket.service.AuthService;
 import org.example.campusmarket.util.FileUploadUtil;
+import org.example.campusmarket.dto.ForgotPasswordDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -172,6 +173,23 @@ public class AuthController {
             Map<String, Object> result = new HashMap<>();
             result.put("code", 200);
             result.put("message", "密码修改成功，请重新登录");
+            return result;
+        } catch (RuntimeException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 400);
+            result.put("message", e.getMessage());
+            return result;
+        }
+    }
+    
+    // 忘记密码
+    @PostMapping("/forgot-password")
+    public Map<String, Object> forgotPassword(@RequestBody ForgotPasswordDTO forgotPasswordDTO) {
+        try {
+            authService.forgotPassword(forgotPasswordDTO.getUsername(), forgotPasswordDTO.getEmail(), forgotPasswordDTO.getNewPassword());
+            Map<String, Object> result = new HashMap<>();
+            result.put("code", 200);
+            result.put("message", "密码修改成功，请使用新密码登录");
             return result;
         } catch (RuntimeException e) {
             Map<String, Object> result = new HashMap<>();

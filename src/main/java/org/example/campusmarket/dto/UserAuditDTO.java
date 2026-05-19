@@ -11,6 +11,7 @@ public class UserAuditDTO {
     private String username;
     private String name;
     private String phone;
+    private String email;
     private String type;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private Date registerTime;
@@ -21,4 +22,5 @@ public class UserAuditDTO {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss", timezone = "GMT+8")
     private Date auditTime;
     private String auditRemark;
+    private String status;
 }

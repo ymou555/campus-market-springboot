@@ -3,10 +3,14 @@ package org.example.campusmarket.controller;
 import org.example.campusmarket.dto.MerchantApplicationDTO;
 import org.example.campusmarket.dto.UserProfileDTO;
 import org.example.campusmarket.entity.SysUser;
+import org.example.campusmarket.service.MerchantApplicationService;
 import org.example.campusmarket.service.UserService;
+import org.example.campusmarket.util.FileUploadUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -15,6 +19,8 @@ import java.util.Map;
 public class UserController {
     @Autowired
     private UserService userService;
+    @Autowired
+    private MerchantApplicationService merchantApplicationService;
 
     // 获取个人信息
     @GetMapping("/profile")
@@ -53,10 +59,16 @@ public class UserController {
     }
     
     // 普通用户申请成为商家
-    @PostMapping("/apply-merchant")
-    public Map<String, Object> applyForMerchant(@RequestBody MerchantApplicationDTO applicationDTO) {
+    @PostMapping("/merchant-application")
+    public Map<String, Object> applyForMerchant(
+            @RequestParam("userId") Integer userId,
+            @RequestParam("shopName") String shopName,
+            @RequestParam("businessLicense") MultipartFile businessLicense,
+            @RequestParam("idCardPhoto") MultipartFile idCardPhoto) {
+        
         try {
-            userService.applyForMerchant(applicationDTO);
+            merchantApplicationService.apply(userId, shopName, businessLicense, idCardPhoto);
+            
             Map<String, Object> result = new HashMap<>();
             result.put("code", 200);
             result.put("message", "申请已提交，请等待审核");

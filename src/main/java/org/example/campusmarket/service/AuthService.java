@@ -68,8 +68,12 @@ public class AuthService {
             throw new RuntimeException("用户名或密码错误");
         }
 
-        if (!"active".equals(user.getStatus())) {
-            throw new RuntimeException("账号未激活或已被封禁");
+        if (!"active".equals(user.getStatus()) && !"blocked".equals(user.getStatus())) {
+            if ("pending".equals(user.getStatus())) {
+                throw new RuntimeException("账号待审核，请等待管理员审核通过");
+            } else {
+                throw new RuntimeException("账号状态异常，请联系客服");
+            }
         }
 
         Map<String, Object> result = new HashMap<>();
@@ -126,6 +130,30 @@ public class AuthService {
         }
         
         // 更新密码（明文存储，方便测试）
+        user.setPassword(newPassword);
+        user.setUpdateTime(new Date());
+        sysUserMapper.updateById(user);
+    }
+    
+    // 忘记密码
+    @Transactional
+    public void forgotPassword(String username, String email, String newPassword) {
+        // 验证用户名和邮箱是否匹配
+        LambdaQueryWrapper<SysUser> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(SysUser::getUsername, username);
+        wrapper.eq(SysUser::getEmail, email);
+        
+        SysUser user = sysUserMapper.selectOne(wrapper);
+        if (user == null) {
+            throw new RuntimeException("用户名或邮箱错误");
+        }
+        
+        // 验证新密码不能与旧密码相同
+        if (newPassword.equals(user.getPassword())) {
+            throw new RuntimeException("新密码不能与旧密码相同");
+        }
+        
+        // 更新密码
         user.setPassword(newPassword);
         user.setUpdateTime(new Date());
         sysUserMapper.updateById(user);

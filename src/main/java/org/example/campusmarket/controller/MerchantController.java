@@ -1,5 +1,7 @@
 package org.example.campusmarket.controller;
 
+import org.example.campusmarket.dto.MerchantStatusDTO;
+import org.example.campusmarket.entity.MerchantBanRecord;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.MerchantLevel;
 import org.example.campusmarket.entity.UserBlacklist;
@@ -26,6 +28,7 @@ public class MerchantController {
     private BlacklistService blacklistService;
     @Autowired
     private UserService userService;
+    @Autowired
     private FileUploadUtil fileUploadUtil;
 
     // 获取商家信息
@@ -236,7 +239,7 @@ public class MerchantController {
     }
     
     // 商家开通买家功能
-    @PostMapping("/enable-buyer")
+    @PostMapping("/buyer-function")
     public Map<String, Object> enableBuyerFunction(@RequestParam Integer userId) {
         try {
             userService.enableBuyerFunction(userId);
@@ -250,5 +253,39 @@ public class MerchantController {
             result.put("message", e.getMessage());
             return result;
         }
+    }
+    
+    // 获取商家状态
+    @GetMapping("/status")
+    public Map<String, Object> getMerchantStatus(@RequestParam Integer userId) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            MerchantInfo merchantInfo = merchantService.getMerchantInfo(userId);
+            if (merchantInfo == null) {
+                result.put("code", 404);
+                result.put("message", "商家信息不存在");
+                return result;
+            }
+            
+            MerchantStatusDTO statusDTO = new MerchantStatusDTO();
+            statusDTO.setShopStatus(merchantInfo.getShopStatus());
+            statusDTO.setBanned("banned".equals(merchantInfo.getShopStatus()));
+            
+            if ("banned".equals(merchantInfo.getShopStatus())) {
+                MerchantBanRecord banRecord = merchantService.getActiveBanRecord(userId);
+                if (banRecord != null) {
+                    statusDTO.setBanEndTime(banRecord.getBanEndTime());
+                    statusDTO.setBanReason(banRecord.getBanReason());
+                }
+            }
+            
+            result.put("code", 200);
+            result.put("message", "获取成功");
+            result.put("data", statusDTO);
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("message", "获取失败: " + e.getMessage());
+        }
+        return result;
     }
 }

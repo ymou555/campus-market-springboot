@@ -73,6 +73,40 @@ public class OrderController {
         return result;
     }
 
+    // 批量创建订单（按商家分组，每个商家创建一个订单，每个订单可独立配置配送信息）
+    @PostMapping("/batch")
+    public Map<String, Object> createOrdersBatch(
+            @RequestParam Integer userId,
+            @RequestParam String orderConfigs,
+            @RequestParam(required = false) Double buyerOfferPrice) {
+
+        List<Cart> selectedItems = cartService.getSelectedCartItems(userId);
+        if (selectedItems.isEmpty()) {
+            throw new RuntimeException("请选择要购买的商品");
+        }
+
+        Map<Integer, Map<String, Object>> configsMap = new HashMap<>();
+        try {
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            List<Map<String, Object>> configList = objectMapper.readValue(orderConfigs, List.class);
+            for (Map<String, Object> config : configList) {
+                Integer merchantId = Integer.parseInt(config.get("merchantId").toString());
+                configsMap.put(merchantId, config);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("订单配置格式错误，请传入JSON数组格式");
+        }
+
+        List<OrderInfo> orders = orderService.createOrdersByMerchant(userId, selectedItems, configsMap, buyerOfferPrice);
+
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "批量订单创建成功，共创建 " + orders.size() + " 个订单");
+        result.put("orders", orders);
+        result.put("orderCount", orders.size());
+        return result;
+    }
+
     // 支付订单
     @PostMapping("/pay")
     public Map<String, Object> payOrder(@RequestParam Integer orderId) {

@@ -46,6 +46,7 @@ public class UserService {
     private ReviewMapper reviewMapper;
     @Autowired
     private PointsService pointsService;
+    @Autowired
     private WalletService walletService;
 
     // 获取用户信息
@@ -241,12 +242,8 @@ public class UserService {
                     userWrapper.set(SysUser::getRole, "both");
                 }
             }
-        } else if ("rejected".equals(auditStatus)) {
-            // 审核拒绝时用户状态保持不变
-        }
-        sysUserMapper.update(null, userWrapper);
-
-        if ("approved".equals(auditStatus)) {
+            sysUserMapper.update(null, userWrapper);
+            
             walletService.getWallet(userId);
         }
 
@@ -398,19 +395,26 @@ public class UserService {
         for (UserAudit audit : auditList) {
             SysUser user = sysUserMapper.selectById(audit.getUserId());
             if (user == null) continue;
+            
+            if ("admin".equals(user.getRole())) {
+                continue;
+            }
 
             UserAuditDTO dto = new UserAuditDTO();
             dto.setId(user.getId());
             dto.setUsername(user.getUsername());
             dto.setName(user.getName());
             dto.setPhone(user.getPhone());
+            dto.setEmail(user.getEmail());
             dto.setType(user.getRole());
             dto.setRegisterTime(user.getCreateTime());
             dto.setAuditStatus(audit.getAuditStatus());
             dto.setAuditTime(audit.getAuditTime());
             dto.setAuditRemark(audit.getAuditRemark());
+            dto.setStatus(user.getStatus());
 
-            if ("merchant".equals(user.getRole())) {
+            if ("merchant".equals(user.getRole()) || "both".equals(user.getRole()) || 
+                ("pending".equals(audit.getAuditStatus()) && "active".equals(user.getStatus()))) {
                 LambdaQueryWrapper<MerchantInfo> merchantWrapper = new LambdaQueryWrapper<>();
                 merchantWrapper.eq(MerchantInfo::getUserId, user.getId());
                 MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantWrapper);

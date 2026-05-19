@@ -1,8 +1,10 @@
 package org.example.campusmarket.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import org.example.campusmarket.dto.PendingBuyerReviewDTO;
 import org.example.campusmarket.dto.PendingMerchantReviewDTO;
 import org.example.campusmarket.dto.PendingProductReviewDTO;
+import org.example.campusmarket.dto.ReviewedBuyerDTO;
 import org.example.campusmarket.dto.UserReviewDTO;
 import org.example.campusmarket.entity.MerchantInfo;
 import org.example.campusmarket.entity.OrderInfo;
@@ -207,7 +209,6 @@ public class ReviewService {
         LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(Review::getTargetId, merchantId);
         wrapper.eq(Review::getTargetType, "merchant");
-        // 使用QueryWrapper来支持SQL聚合函数
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<Review> queryWrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
         queryWrapper.eq("target_id", merchantId);
         queryWrapper.eq("target_type", "merchant");
@@ -215,15 +216,30 @@ public class ReviewService {
         Object result = reviewMapper.selectObjs(queryWrapper).stream().findFirst().orElse(0);
         return result != null ? Double.parseDouble(result.toString()) : 0;
     }
+    
+    public double getBuyerAverageRating(Integer buyerId) {
+        LambdaQueryWrapper<Review> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Review::getTargetId, buyerId);
+        wrapper.eq(Review::getTargetType, "buyer");
+        
+        List<Review> reviews = reviewMapper.selectList(wrapper);
+        
+        if (reviews.isEmpty()) {
+            return 0;
+        }
+        
+        double totalRating = reviews.stream().mapToInt(Review::getRating).sum();
+        return Math.round(totalRating / reviews.size() * 100.0) / 100.0;
+    }
 
     // 获取用户待评价的商品列表
     public List<PendingProductReviewDTO> getPendingProductReviews(Integer userId) {
         List<PendingProductReviewDTO> result = new ArrayList<>();
         
-        // 1. 查询用户已完成的订单
+        // 1. 查询用户已收货、已完成或已退款的订单
         LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
         orderWrapper.eq(OrderInfo::getUserId, userId);
-        orderWrapper.eq(OrderInfo::getStatus, "completed");
+        orderWrapper.in(OrderInfo::getStatus, "received", "completed", "refunded");
         orderWrapper.orderByDesc(OrderInfo::getCreateTime);
         List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
         
@@ -290,10 +306,10 @@ public class ReviewService {
     public List<PendingMerchantReviewDTO> getPendingMerchantReviews(Integer userId) {
         List<PendingMerchantReviewDTO> result = new ArrayList<>();
         
-        // 1. 查询用户已完成的订单
+        // 1. 查询用户已收货、已完成或已退款的订单
         LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
         orderWrapper.eq(OrderInfo::getUserId, userId);
-        orderWrapper.eq(OrderInfo::getStatus, "completed");
+        orderWrapper.in(OrderInfo::getStatus, "received", "completed", "refunded");
         orderWrapper.orderByDesc(OrderInfo::getCreateTime);
         List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
         
@@ -365,6 +381,140 @@ public class ReviewService {
                 
                 result.add(dto);
             }
+        }
+        
+        return result;
+    }
+    
+    public List<PendingBuyerReviewDTO> getPendingBuyerReviews(Integer merchantId) {
+        List<PendingBuyerReviewDTO> result = new ArrayList<>();
+        
+        // 查询商家已收货、已完成或已退款的订单
+        LambdaQueryWrapper<OrderInfo> orderWrapper = new LambdaQueryWrapper<>();
+        orderWrapper.eq(OrderInfo::getMerchantId, merchantId);
+        orderWrapper.in(OrderInfo::getStatus, "received", "completed", "refunded");
+        orderWrapper.orderByDesc(OrderInfo::getCreateTime);
+        List<OrderInfo> orders = orderInfoMapper.selectList(orderWrapper);
+        
+        int idCounter = 1;
+        for (OrderInfo order : orders) {
+            LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+            reviewWrapper.eq(Review::getOrderId, order.getId());
+            reviewWrapper.eq(Review::getTargetId, order.getUserId());
+            reviewWrapper.eq(Review::getTargetType, "buyer");
+            reviewWrapper.eq(Review::getUserId, merchantId);
+            
+            Long count = reviewMapper.selectCount(reviewWrapper);
+            
+            if (count == 0) {
+                PendingBuyerReviewDTO dto = new PendingBuyerReviewDTO();
+                dto.setId(idCounter++);
+                dto.setOrderId(order.getId());
+                dto.setOrderNo(order.getOrderNo());
+                dto.setBuyerId(order.getUserId());
+                dto.setCreateTime(order.getCreateTime());
+                
+                SysUser buyer = sysUserMapper.selectById(order.getUserId());
+                if (buyer != null) {
+                    dto.setBuyerName(buyer.getName());
+                    dto.setBuyerPhone(buyer.getPhone());
+                }
+                
+                LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+                itemWrapper.eq(OrderItem::getOrderId, order.getId());
+                List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+                
+                List<String> productNames = new ArrayList<>();
+                String firstProductImage = null;
+                
+                for (OrderItem item : items) {
+                    Product product = productMapper.selectById(item.getProductId());
+                    if (product != null) {
+                        productNames.add(product.getProductName());
+                        
+                        if (firstProductImage == null) {
+                            LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                            imageWrapper.eq(ProductImage::getProductId, product.getId());
+                            imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                            List<ProductImage> images = productImageMapper.selectList(imageWrapper);
+                            if (!images.isEmpty()) {
+                                firstProductImage = images.get(0).getImageUrl();
+                            }
+                        }
+                    }
+                }
+                
+                dto.setProductNames(productNames);
+                dto.setProductImage(firstProductImage);
+                
+                result.add(dto);
+            }
+        }
+        
+        return result;
+    }
+    
+    public List<ReviewedBuyerDTO> getReviewedBuyers(Integer merchantId) {
+        List<ReviewedBuyerDTO> result = new ArrayList<>();
+        
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getUserId, merchantId);
+        reviewWrapper.eq(Review::getTargetType, "buyer");
+        reviewWrapper.orderByDesc(Review::getCreateTime);
+        List<Review> reviews = reviewMapper.selectList(reviewWrapper);
+        
+        int idCounter = 1;
+        for (Review review : reviews) {
+            ReviewedBuyerDTO dto = new ReviewedBuyerDTO();
+            dto.setId(idCounter++);
+            dto.setOrderId(review.getOrderId());
+            dto.setBuyerId(review.getTargetId());
+            dto.setRating(review.getRating());
+            dto.setContent(review.getContent());
+            dto.setReviewTime(review.getCreateTime());
+            
+            OrderInfo order = orderInfoMapper.selectById(review.getOrderId());
+            if (order != null) {
+                dto.setOrderNo(order.getOrderNo());
+                dto.setCreateTime(order.getCreateTime());
+            }
+            
+            SysUser buyer = sysUserMapper.selectById(review.getTargetId());
+            if (buyer != null) {
+                dto.setBuyerName(buyer.getName());
+                dto.setBuyerPhone(buyer.getPhone());
+            }
+            
+            if (order != null) {
+                LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+                itemWrapper.eq(OrderItem::getOrderId, order.getId());
+                List<OrderItem> items = orderItemMapper.selectList(itemWrapper);
+                
+                List<String> productNames = new ArrayList<>();
+                String firstProductImage = null;
+                
+                for (OrderItem item : items) {
+                    Product product = productMapper.selectById(item.getProductId());
+                    if (product != null) {
+                        productNames.add(product.getProductName());
+                        
+                        if (firstProductImage == null) {
+                            LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                            imageWrapper.eq(ProductImage::getProductId, product.getId());
+                            imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                            List<ProductImage> images = productImageMapper.selectList(imageWrapper);
+                            if (!images.isEmpty()) {
+                                firstProductImage = images.get(0).getImageUrl();
+                            }
+                        }
+                    }
+                }
+                
+                dto.setProductNames(productNames);
+                dto.setProductImage(firstProductImage);
+            }
+            
+            result.add(dto);
         }
         
         return result;
