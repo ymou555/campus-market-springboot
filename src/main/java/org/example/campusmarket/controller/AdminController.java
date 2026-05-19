@@ -166,7 +166,7 @@ public class AdminController {
         Long productCount = productMapper.selectCount(new LambdaQueryWrapper<Product>().eq(Product::getStatus, "published"));
         statistics.setProductCount(productCount);
         
-        List<OrderInfo> orders = orderInfoMapper.selectList(new LambdaQueryWrapper<OrderInfo>().ne(OrderInfo::getStatus, "cancelled"));
+        List<OrderInfo> orders = orderInfoMapper.selectList(new LambdaQueryWrapper<OrderInfo>().in(OrderInfo::getStatus, "received"));
         Double totalOrderAmount = orders.stream().mapToDouble(o -> o.getActualAmount() != null ? o.getActualAmount() : 0).sum();
         statistics.setTotalOrderAmount(totalOrderAmount);
         
