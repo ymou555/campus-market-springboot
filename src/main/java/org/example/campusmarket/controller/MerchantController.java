@@ -6,9 +6,12 @@ import org.example.campusmarket.entity.UserBlacklist;
 import org.example.campusmarket.service.BlacklistService;
 import org.example.campusmarket.service.MerchantService;
 import org.example.campusmarket.service.UserService;
+import org.example.campusmarket.util.FileUploadUtil;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
@@ -23,6 +26,7 @@ public class MerchantController {
     private BlacklistService blacklistService;
     @Autowired
     private UserService userService;
+    private FileUploadUtil fileUploadUtil;
 
     // 获取商家信息
     @GetMapping("/info")
@@ -35,13 +39,84 @@ public class MerchantController {
         return result;
     }
 
-    // 更新商家信息
-    @PutMapping("/info")
-    public Map<String, Object> updateMerchantInfo(@RequestBody MerchantInfo merchantInfo) {
-        merchantService.updateMerchantInfo(merchantInfo);
+    // 更新商家信息（包含图片）
+    @PostMapping("/info")
+    public Map<String, Object> updateMerchantInfo(
+            @RequestParam("userId") Integer userId,
+            @RequestParam(value = "shopName", required = false) String shopName,
+            @RequestParam(value = "businessLicense", required = false) MultipartFile businessLicense,
+            @RequestParam(value = "idCardPhoto", required = false) MultipartFile idCardPhoto) {
+
         Map<String, Object> result = new HashMap<>();
-        result.put("code", 200);
-        result.put("message", "更新成功");
+        try {
+            MerchantInfo merchantInfo = merchantService.getMerchantInfo(userId);
+            if (merchantInfo == null) {
+                result.put("code", 404);
+                result.put("message", "商家信息不存在");
+                return result;
+            }
+
+            // 保存旧图片路径，用于后续删除
+            String oldBusinessLicense = merchantInfo.getBusinessLicense();
+            String oldIdCardPhoto = merchantInfo.getIdCardPhoto();
+
+            // 处理营业执照上传
+            if (businessLicense != null && !businessLicense.isEmpty()) {
+                try {
+                    String licenseUrl = fileUploadUtil.uploadMerchantDocument(businessLicense, "license");
+                    merchantInfo.setBusinessLicense(licenseUrl);
+                    // 删除旧图片
+                    if (oldBusinessLicense != null && oldBusinessLicense.startsWith("/uploads")) {
+                        fileUploadUtil.deleteFile(oldBusinessLicense);
+                    }
+                } catch (IOException e) {
+                    result.put("code", 500);
+                    result.put("message", "营业执照上传失败: " + e.getMessage());
+                    return result;
+                } catch (IllegalArgumentException e) {
+                    result.put("code", 400);
+                    result.put("message", "营业执照格式错误: " + e.getMessage());
+                    return result;
+                }
+            }
+
+            // 处理身份证照片上传
+            if (idCardPhoto != null && !idCardPhoto.isEmpty()) {
+                try {
+                    String idCardUrl = fileUploadUtil.uploadMerchantDocument(idCardPhoto, "idcard");
+                    merchantInfo.setIdCardPhoto(idCardUrl);
+                    // 删除旧图片
+                    if (oldIdCardPhoto != null && oldIdCardPhoto.startsWith("/uploads")) {
+                        fileUploadUtil.deleteFile(oldIdCardPhoto);
+                    }
+                } catch (IOException e) {
+                    result.put("code", 500);
+                    result.put("message", "身份证照片上传失败: " + e.getMessage());
+                    return result;
+                } catch (IllegalArgumentException e) {
+                    result.put("code", 400);
+                    result.put("message", "身份证照片格式错误: " + e.getMessage());
+                    return result;
+                }
+            }
+
+            // 更新店铺名称
+            if (shopName != null && !shopName.isEmpty()) {
+                merchantInfo.setShopName(shopName);
+            }
+
+            merchantService.updateMerchantInfo(merchantInfo);
+
+            result.put("code", 200);
+            result.put("message", "更新成功");
+            result.put("merchantInfo", merchantInfo);
+        } catch (IllegalArgumentException e) {
+            result.put("code", 400);
+            result.put("message", e.getMessage());
+        } catch (Exception e) {
+            result.put("code", 500);
+            result.put("message", "更新失败: " + e.getMessage());
+        }
         return result;
     }
 

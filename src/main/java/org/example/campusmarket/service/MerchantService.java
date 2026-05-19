@@ -22,6 +22,7 @@ import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.mapper.UserAuditMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -48,17 +49,48 @@ public class MerchantService {
     @Autowired
     private UserAuditMapper userAuditMapper;
 
-    // 获取商家信息
+    // 获取商家信息（根据用户ID）
     public MerchantInfo getMerchantInfo(Integer userId) {
+        if (userId == null) {
+            throw new RuntimeException("用户ID不能为空");
+        }
         LambdaQueryWrapper<MerchantInfo> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(MerchantInfo::getUserId, userId);
         return merchantInfoMapper.selectOne(wrapper);
     }
 
-    // 更新商家信息
+    // 获取商家信息（根据主键ID）
+    public MerchantInfo getMerchantInfoById(Integer id) {
+        if (id == null) {
+            throw new RuntimeException("商家ID不能为空");
+        }
+        return merchantInfoMapper.selectById(id);
+    }
+
+    // 更新商家信息（包含图片）
+    @Transactional
     public void updateMerchantInfo(MerchantInfo merchantInfo) {
-        merchantInfo.setUpdateTime(new Date());
-        merchantInfoMapper.updateById(merchantInfo);
+        if (merchantInfo.getUserId() == null) {
+            throw new RuntimeException("用户ID不能为空");
+        }
+        
+        MerchantInfo existingInfo = getMerchantInfo(merchantInfo.getUserId());
+        
+        if (existingInfo == null) {
+            merchantInfo.setCreateTime(new Date());
+            merchantInfo.setUpdateTime(new Date());
+            merchantInfoMapper.insert(merchantInfo);
+        } else {
+            merchantInfo.setId(existingInfo.getId());
+            merchantInfo.setUpdateTime(new Date());
+            if (merchantInfo.getCreateTime() == null) {
+                merchantInfo.setCreateTime(existingInfo.getCreateTime());
+            }
+            if (merchantInfo.getLevelId() == null) {
+                merchantInfo.setLevelId(existingInfo.getLevelId());
+            }
+            merchantInfoMapper.updateById(merchantInfo);
+        }
     }
 
     // 获取商家等级列表

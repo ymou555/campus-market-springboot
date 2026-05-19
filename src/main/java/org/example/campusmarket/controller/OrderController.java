@@ -2,6 +2,8 @@ package org.example.campusmarket.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import org.example.campusmarket.dto.MerchantCartVO;
+import org.example.campusmarket.dto.MerchantOrderDetailVO;
+import org.example.campusmarket.dto.MerchantOrderListVO;
 import org.example.campusmarket.dto.OrderDetailVO;
 import org.example.campusmarket.dto.OrderListVO;
 import org.example.campusmarket.dto.SelectedCartItemVO;
@@ -137,6 +139,17 @@ public class OrderController {
     @GetMapping("/detail")
     public Map<String, Object> getOrderDetail(@RequestParam Integer orderId) {
         OrderDetailVO detail = orderService.getOrderDetail(orderId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", detail);
+        return result;
+    }
+
+    // 商家获取订单详情
+    @GetMapping("/merchant/detail")
+    public Map<String, Object> getMerchantOrderDetail(@RequestParam Integer orderId) {
+        MerchantOrderDetailVO detail = orderService.getMerchantOrderDetail(orderId);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
@@ -282,7 +295,7 @@ public class OrderController {
     public Map<String, Object> getMerchantOrders(
             @RequestParam Integer merchantId,
             @RequestParam(required = false) String status) {
-        List<OrderInfo> orders = orderService.getMerchantOrders(merchantId, status);
+        List<MerchantOrderListVO> orders = orderService.getMerchantOrdersWithDetails(merchantId, status);
         Map<String, Object> result = new HashMap<>();
         result.put("code", 200);
         result.put("message", "获取成功");
@@ -371,6 +384,59 @@ public class OrderController {
         result.put("code", 200);
         result.put("message", "获取成功");
         result.put("data", request);
+        return result;
+    }
+
+    // ==================== 商家统计接口 ====================
+
+    // 获取商家今日订单数
+    @GetMapping("/merchant/today/count")
+    public Map<String, Object> getTodayOrderCount(@RequestParam Integer merchantId) {
+        int count = orderService.getTodayOrderCount(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", count);
+        return result;
+    }
+
+    // 获取商家今日销售额
+    @GetMapping("/merchant/today/sales")
+    public Map<String, Object> getTodaySalesAmount(@RequestParam Integer merchantId) {
+        double sales = orderService.getTodaySalesAmount(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", sales);
+        return result;
+    }
+
+    // 获取商家待处理订单数
+    @GetMapping("/merchant/pending/count")
+    public Map<String, Object> getPendingOrderCount(@RequestParam Integer merchantId) {
+        int count = orderService.getPendingOrderCount(merchantId);
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        result.put("data", count);
+        return result;
+    }
+
+    // 获取商家订单统计概览（今日订单数、今日销售额、待处理订单数）
+    @GetMapping("/merchant/summary")
+    public Map<String, Object> getMerchantOrderSummary(@RequestParam Integer merchantId) {
+        int todayOrderCount = orderService.getTodayOrderCount(merchantId);
+        double todaySales = orderService.getTodaySalesAmount(merchantId);
+        int pendingCount = orderService.getPendingOrderCount(merchantId);
+        
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("message", "获取成功");
+        Map<String, Object> data = new HashMap<>();
+        data.put("todayOrderCount", todayOrderCount);
+        data.put("todaySales", todaySales);
+        data.put("pendingCount", pendingCount);
+        result.put("data", data);
         return result;
     }
 }

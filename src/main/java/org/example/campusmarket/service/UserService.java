@@ -15,6 +15,7 @@ import org.example.campusmarket.entity.Wallet;
 import org.example.campusmarket.mapper.MerchantInfoMapper;
 import org.example.campusmarket.mapper.OrderInfoMapper;
 import org.example.campusmarket.mapper.ReviewMapper;
+import org.example.campusmarket.dto.UserAuditDTO;
 import org.example.campusmarket.mapper.SysUserMapper;
 import org.example.campusmarket.mapper.UserAuditMapper;
 import org.example.campusmarket.mapper.WalletMapper;
@@ -45,6 +46,7 @@ public class UserService {
     private ReviewMapper reviewMapper;
     @Autowired
     private PointsService pointsService;
+    private WalletService walletService;
 
     // 获取用户信息
     public SysUser getUserById(Integer id) {
@@ -208,7 +210,10 @@ public class UserService {
     // 审核用户
     @Transactional
     public void auditUser(Integer userId, String auditStatus, String remark) {
-        // 审核拒绝时必须填写备注
+        if (!"approved".equals(auditStatus) && !"rejected".equals(auditStatus)) {
+            throw new RuntimeException("审核状态无效，只能是 approved 或 rejected");
+        }
+        
         if ("rejected".equals(auditStatus) && (remark == null || remark.isEmpty())) {
             throw new RuntimeException("审核拒绝时必须填写备注");
         }
@@ -241,7 +246,10 @@ public class UserService {
         }
         sysUserMapper.update(null, userWrapper);
 
-        // 更新审核记录
+        if ("approved".equals(auditStatus)) {
+            walletService.getWallet(userId);
+        }
+
         LambdaUpdateWrapper<UserAudit> auditWrapper = new LambdaUpdateWrapper<>();
         auditWrapper.eq(UserAudit::getUserId, userId);
         auditWrapper.set(UserAudit::getAuditStatus, auditStatus);
@@ -375,5 +383,47 @@ public class UserService {
         profile.setReviewCount(reviewCount != null ? reviewCount.intValue() : 0);
         
         return profile;
+
+    }
+
+    public List<UserAuditDTO> getUserAuditList(String auditStatus) {
+        List<UserAuditDTO> result = new ArrayList<>();
+
+        LambdaQueryWrapper<UserAudit> auditWrapper = new LambdaQueryWrapper<>();
+        if (auditStatus != null && !auditStatus.isEmpty()) {
+            auditWrapper.eq(UserAudit::getAuditStatus, auditStatus);
+        }
+        List<UserAudit> auditList = userAuditMapper.selectList(auditWrapper);
+
+        for (UserAudit audit : auditList) {
+            SysUser user = sysUserMapper.selectById(audit.getUserId());
+            if (user == null) continue;
+
+            UserAuditDTO dto = new UserAuditDTO();
+            dto.setId(user.getId());
+            dto.setUsername(user.getUsername());
+            dto.setName(user.getName());
+            dto.setPhone(user.getPhone());
+            dto.setType(user.getRole());
+            dto.setRegisterTime(user.getCreateTime());
+            dto.setAuditStatus(audit.getAuditStatus());
+            dto.setAuditTime(audit.getAuditTime());
+            dto.setAuditRemark(audit.getAuditRemark());
+
+            if ("merchant".equals(user.getRole())) {
+                LambdaQueryWrapper<MerchantInfo> merchantWrapper = new LambdaQueryWrapper<>();
+                merchantWrapper.eq(MerchantInfo::getUserId, user.getId());
+                MerchantInfo merchantInfo = merchantInfoMapper.selectOne(merchantWrapper);
+                if (merchantInfo != null) {
+                    dto.setShopName(merchantInfo.getShopName());
+                    dto.setBusinessLicense(merchantInfo.getBusinessLicense());
+                    dto.setIdCardPhoto(merchantInfo.getIdCardPhoto());
+                }
+            }
+
+            result.add(dto);
+        }
+
+        return result;
     }
 }

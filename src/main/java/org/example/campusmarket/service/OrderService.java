@@ -3,6 +3,9 @@ package org.example.campusmarket.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.example.campusmarket.dto.MerchantOrderDetailDeliveryVO;
+import org.example.campusmarket.dto.MerchantOrderDetailVO;
+import org.example.campusmarket.dto.MerchantOrderListVO;
 import org.example.campusmarket.dto.OrderDetailDeliveryVO;
 import org.example.campusmarket.dto.OrderDetailProductVO;
 import org.example.campusmarket.dto.OrderDetailVO;
@@ -51,6 +54,8 @@ public class OrderService {
     private MerchantInfoMapper merchantInfoMapper;
     @Autowired
     private MerchantLevelMapper merchantLevelMapper;
+    @Autowired
+    private ReviewMapper reviewMapper;
     @Autowired
     private BlacklistService blacklistService;
 
@@ -842,6 +847,148 @@ public class OrderService {
         return orderInfoMapper.selectList(wrapper);
     }
 
+    // 获取商家订单列表（包含买家信息和商品列表）
+    public List<MerchantOrderListVO> getMerchantOrdersWithDetails(Integer merchantId, String status) {
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getMerchantId, merchantId);
+        if (status != null && !status.isEmpty()) {
+            wrapper.eq(OrderInfo::getStatus, status);
+        }
+        wrapper.orderByDesc(OrderInfo::getCreateTime);
+        List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
+
+        if (orders.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<Integer> orderIds = orders.stream()
+                .map(OrderInfo::getId)
+                .collect(Collectors.toList());
+
+        List<Integer> userIds = orders.stream()
+                .map(OrderInfo::getUserId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        LambdaQueryWrapper<SysUser> userWrapper = new LambdaQueryWrapper<>();
+        userWrapper.in(SysUser::getId, userIds);
+        List<SysUser> users = sysUserMapper.selectList(userWrapper);
+        Map<Integer, SysUser> userMap = users.stream()
+                .collect(Collectors.toMap(SysUser::getId, u -> u));
+
+        LambdaQueryWrapper<OrderItem> itemWrapper = new LambdaQueryWrapper<>();
+        itemWrapper.in(OrderItem::getOrderId, orderIds);
+        List<OrderItem> allItems = orderItemMapper.selectList(itemWrapper);
+
+        Map<Integer, List<OrderItem>> itemsByOrder = allItems.stream()
+                .collect(Collectors.groupingBy(OrderItem::getOrderId));
+
+        List<Integer> productIds = allItems.stream()
+                .map(OrderItem::getProductId)
+                .distinct()
+                .collect(Collectors.toList());
+
+        LambdaQueryWrapper<Product> productWrapper = new LambdaQueryWrapper<>();
+        productWrapper.in(Product::getId, productIds);
+        List<Product> products = productMapper.selectList(productWrapper);
+
+        Map<Integer, Product> productMap = products.stream()
+                .collect(Collectors.toMap(Product::getId, p -> p));
+
+        Map<Integer, String> productImageMap = new java.util.HashMap<>();
+        for (Integer productId : productIds) {
+            LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+            imageWrapper.eq(ProductImage::getProductId, productId);
+            imageWrapper.orderByAsc(ProductImage::getSortOrder);
+            imageWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+            ProductImage firstImage = productImageMapper.selectOne(imageWrapper);
+            if (firstImage != null) {
+                productImageMap.put(productId, firstImage.getImageUrl());
+            }
+        }
+
+        LambdaQueryWrapper<OrderDelivery> deliveryWrapper = new LambdaQueryWrapper<>();
+        deliveryWrapper.in(OrderDelivery::getOrderId, orderIds);
+        List<OrderDelivery> deliveries = orderDeliveryMapper.selectList(deliveryWrapper);
+        Map<Integer, OrderDelivery> deliveryMap = deliveries.stream()
+                .collect(Collectors.toMap(OrderDelivery::getOrderId, d -> d));
+
+        LambdaQueryWrapper<OrderReturnRequest> returnWrapper = new LambdaQueryWrapper<>();
+        returnWrapper.in(OrderReturnRequest::getOrderId, orderIds);
+        returnWrapper.orderByDesc(OrderReturnRequest::getRequestTime);
+        List<OrderReturnRequest> returnRequests = orderReturnRequestMapper.selectList(returnWrapper);
+        Map<Integer, OrderReturnRequest> returnRequestMap = returnRequests.stream()
+                .collect(Collectors.toMap(OrderReturnRequest::getOrderId, r -> r, (r1, r2) -> r1));
+
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.in(Review::getOrderId, orderIds);
+        reviewWrapper.eq(Review::getTargetType, "buyer");
+        List<Review> reviews = reviewMapper.selectList(reviewWrapper);
+        Map<Integer, Boolean> reviewMap = reviews.stream()
+                .collect(Collectors.toMap(Review::getOrderId, r -> true, (r1, r2) -> r1));
+
+        List<MerchantOrderListVO> result = new ArrayList<>();
+        for (OrderInfo order : orders) {
+            MerchantOrderListVO vo = new MerchantOrderListVO();
+            vo.setId(order.getId());
+            vo.setOrderNo(order.getOrderNo());
+            vo.setStatus(order.getStatus());
+            vo.setCreateTime(order.getCreateTime());
+            vo.setTotalAmount(order.getTotalAmount());
+            vo.setActualAmount(order.getActualAmount());
+
+            SysUser buyer = userMap.get(order.getUserId());
+            vo.setBuyerId(order.getUserId());
+            if (buyer != null) {
+                vo.setBuyerName(buyer.getName());
+                vo.setBuyerPhone(buyer.getPhone());
+            }
+
+            OrderDelivery delivery = deliveryMap.get(order.getId());
+            if (delivery != null) {
+                vo.setDeliveryType(delivery.getDeliveryType());
+            }
+
+            OrderReturnRequest returnRequest = returnRequestMap.get(order.getId());
+            if (returnRequest != null) {
+                MerchantOrderListVO.ReturnRequestVO returnRequestVO = new MerchantOrderListVO.ReturnRequestVO();
+                returnRequestVO.setId(returnRequest.getId());
+                returnRequestVO.setReturnReason(returnRequest.getReturnReason());
+                returnRequestVO.setRequestTime(returnRequest.getRequestTime());
+                returnRequestVO.setStatus(returnRequest.getStatus());
+                returnRequestVO.setAuditTime(returnRequest.getAuditTime());
+                returnRequestVO.setAuditRemark(returnRequest.getAuditRemark());
+                returnRequestVO.setRefundAmount(returnRequest.getRefundAmount());
+                vo.setReturnRequest(returnRequestVO);
+            }
+
+            List<OrderItem> orderItems = itemsByOrder.getOrDefault(order.getId(), new ArrayList<>());
+            int totalQuantity = 0;
+            List<OrderProductVO> productVOs = new ArrayList<>();
+
+            for (OrderItem item : orderItems) {
+                totalQuantity += item.getQuantity();
+                Product product = productMap.get(item.getProductId());
+                if (product != null) {
+                    OrderProductVO productVO = new OrderProductVO();
+                    productVO.setId(product.getId());
+                    productVO.setProductName(product.getProductName());
+                    productVO.setPrice(item.getPrice());
+                    productVO.setQuantity(item.getQuantity());
+                    productVO.setProductImage(productImageMap.get(item.getProductId()));
+                    productVOs.add(productVO);
+                }
+            }
+
+            vo.setTotalQuantity(totalQuantity);
+            vo.setProducts(productVOs);
+            vo.setMerchantReviewed(reviewMap.getOrDefault(order.getId(), false));
+            result.add(vo);
+        }
+
+        return result;
+    }
+
     // 记录订单状态变更
     private void recordOrderStatusChange(Integer orderId, String oldStatus, String newStatus, String operator) {
         OrderStatusLog log = new OrderStatusLog();
@@ -1012,6 +1159,133 @@ public class OrderService {
             returnRequestVO.setRefundAmount(returnRequest.getRefundAmount());
             vo.setReturnRequest(returnRequestVO);
         }
+
+        return vo;
+    }
+
+    // 商家获取订单详情
+    public MerchantOrderDetailVO getMerchantOrderDetail(Integer orderId) {
+        OrderInfo order = orderInfoMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+
+        MerchantOrderDetailVO vo = new MerchantOrderDetailVO();
+        vo.setId(order.getId());
+        vo.setOrderNo(order.getOrderNo());
+        vo.setStatus(order.getStatus());
+        vo.setCreateTime(order.getCreateTime());
+        vo.setBuyerOfferPrice(order.getBuyerOfferPrice());
+        vo.setTotalAmount(order.getTotalAmount());
+        vo.setActualAmount(order.getActualAmount());
+
+        SysUser buyer = sysUserMapper.selectById(order.getUserId());
+        vo.setBuyerId(order.getUserId());
+        if (buyer != null) {
+            vo.setBuyerName(buyer.getName());
+            vo.setBuyerPhone(buyer.getPhone());
+        }
+
+        OrderDelivery delivery = getOrderDelivery(orderId);
+        if (delivery != null) {
+            vo.setDeliveryType(delivery.getDeliveryType());
+        }
+
+        LambdaQueryWrapper<OrderStatusLog> payLogWrapper = new LambdaQueryWrapper<>();
+        payLogWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        payLogWrapper.eq(OrderStatusLog::getNewStatus, "paid");
+        payLogWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        payLogWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderStatusLog payLog = orderStatusLogMapper.selectOne(payLogWrapper);
+        if (payLog != null) {
+            vo.setPayTime(payLog.getOperateTime());
+        }
+
+        LambdaQueryWrapper<OrderStatusLog> shipLogWrapper = new LambdaQueryWrapper<>();
+        shipLogWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        shipLogWrapper.eq(OrderStatusLog::getNewStatus, "shipped");
+        shipLogWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        shipLogWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderStatusLog shipLog = orderStatusLogMapper.selectOne(shipLogWrapper);
+        if (shipLog != null) {
+            vo.setDeliveryTime(shipLog.getOperateTime());
+        }
+
+        LambdaQueryWrapper<OrderStatusLog> receiveLogWrapper = new LambdaQueryWrapper<>();
+        receiveLogWrapper.eq(OrderStatusLog::getOrderId, orderId);
+        receiveLogWrapper.eq(OrderStatusLog::getNewStatus, "received");
+        receiveLogWrapper.orderByAsc(OrderStatusLog::getOperateTime);
+        receiveLogWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderStatusLog receiveLog = orderStatusLogMapper.selectOne(receiveLogWrapper);
+        if (receiveLog != null) {
+            vo.setReceiveTime(receiveLog.getOperateTime());
+        }
+
+        MerchantOrderDetailDeliveryVO deliveryVO = new MerchantOrderDetailDeliveryVO();
+        if (delivery != null) {
+            deliveryVO.setReceiverName(delivery.getReceiverName());
+            deliveryVO.setReceiverPhone(delivery.getReceiverPhone());
+            deliveryVO.setReceiverAddress(delivery.getReceiverAddress());
+            deliveryVO.setTrackingNumber(delivery.getTrackingNumber());
+            deliveryVO.setMeetTime(delivery.getMeetTime());
+            deliveryVO.setMeetLocation(delivery.getMeetLocation());
+            deliveryVO.setMeetStatus(delivery.getMeetStatus());
+        }
+        vo.setDelivery(deliveryVO);
+
+        List<OrderItem> items = getOrderItems(orderId);
+        List<OrderDetailProductVO> productVOs = new ArrayList<>();
+        double productTotal = 0.0;
+
+        for (OrderItem item : items) {
+            Product product = productMapper.selectById(item.getProductId());
+            if (product != null) {
+                OrderDetailProductVO productVO = new OrderDetailProductVO();
+                productVO.setId(product.getId());
+                productVO.setProductName(product.getProductName());
+                productVO.setPrice(item.getPrice());
+                productVO.setQuantity(item.getQuantity());
+
+                LambdaQueryWrapper<ProductImage> imageWrapper = new LambdaQueryWrapper<>();
+                imageWrapper.eq(ProductImage::getProductId, item.getProductId());
+                imageWrapper.orderByAsc(ProductImage::getSortOrder);
+                imageWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+                ProductImage firstImage = productImageMapper.selectOne(imageWrapper);
+                if (firstImage != null) {
+                    productVO.setProductImage(firstImage.getImageUrl());
+                }
+
+                productVOs.add(productVO);
+                productTotal += item.getPrice() * item.getQuantity();
+            }
+        }
+
+        vo.setProducts(productVOs);
+        vo.setProductTotal(productTotal);
+
+        LambdaQueryWrapper<OrderReturnRequest> returnWrapper = new LambdaQueryWrapper<>();
+        returnWrapper.eq(OrderReturnRequest::getOrderId, orderId);
+        returnWrapper.orderByDesc(OrderReturnRequest::getRequestTime);
+        returnWrapper.last("OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY");
+        OrderReturnRequest returnRequest = orderReturnRequestMapper.selectOne(returnWrapper);
+
+        if (returnRequest != null) {
+            MerchantOrderDetailVO.ReturnRequestVO returnRequestVO = new MerchantOrderDetailVO.ReturnRequestVO();
+            returnRequestVO.setId(returnRequest.getId());
+            returnRequestVO.setReturnReason(returnRequest.getReturnReason());
+            returnRequestVO.setRequestTime(returnRequest.getRequestTime());
+            returnRequestVO.setStatus(returnRequest.getStatus());
+            returnRequestVO.setAuditTime(returnRequest.getAuditTime());
+            returnRequestVO.setAuditRemark(returnRequest.getAuditRemark());
+            returnRequestVO.setRefundAmount(returnRequest.getRefundAmount());
+            vo.setReturnRequest(returnRequestVO);
+        }
+
+        LambdaQueryWrapper<Review> reviewWrapper = new LambdaQueryWrapper<>();
+        reviewWrapper.eq(Review::getOrderId, orderId);
+        reviewWrapper.eq(Review::getTargetType, "buyer");
+        Review review = reviewMapper.selectOne(reviewWrapper);
+        vo.setMerchantReviewed(review != null);
 
         return vo;
     }
@@ -1307,5 +1581,60 @@ public class OrderService {
         }
 
         return null;
+    }
+
+    // 获取商家今日订单数
+    public int getTodayOrderCount(Integer merchantId) {
+        Date todayStart = getTodayStart();
+        Date todayEnd = getTodayEnd();
+        
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getMerchantId, merchantId);
+        wrapper.ge(OrderInfo::getCreateTime, todayStart);
+        wrapper.le(OrderInfo::getCreateTime, todayEnd);
+        return orderInfoMapper.selectCount(wrapper).intValue();
+    }
+
+    // 获取商家今日销售额
+    public double getTodaySalesAmount(Integer merchantId) {
+        Date todayStart = getTodayStart();
+        Date todayEnd = getTodayEnd();
+        
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getMerchantId, merchantId);
+        wrapper.ge(OrderInfo::getCreateTime, todayStart);
+        wrapper.le(OrderInfo::getCreateTime, todayEnd);
+        wrapper.ne(OrderInfo::getStatus, "cancelled");
+        
+        List<OrderInfo> orders = orderInfoMapper.selectList(wrapper);
+        return orders.stream().mapToDouble(OrderInfo::getActualAmount).sum();
+    }
+
+    // 获取商家待处理订单数
+    public int getPendingOrderCount(Integer merchantId) {
+        LambdaQueryWrapper<OrderInfo> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OrderInfo::getMerchantId, merchantId);
+        wrapper.in(OrderInfo::getStatus, "pending", "paid", "bargaining");
+        return orderInfoMapper.selectCount(wrapper).intValue();
+    }
+
+    // 获取今天开始时间
+    private Date getTodayStart() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 0);
+        cal.set(java.util.Calendar.MINUTE, 0);
+        cal.set(java.util.Calendar.SECOND, 0);
+        cal.set(java.util.Calendar.MILLISECOND, 0);
+        return cal.getTime();
+    }
+
+    // 获取今天结束时间
+    private Date getTodayEnd() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        cal.set(java.util.Calendar.HOUR_OF_DAY, 23);
+        cal.set(java.util.Calendar.MINUTE, 59);
+        cal.set(java.util.Calendar.SECOND, 59);
+        cal.set(java.util.Calendar.MILLISECOND, 999);
+        return cal.getTime();
     }
 }
